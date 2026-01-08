@@ -21,13 +21,15 @@
 #   y reemplazar el DictLoader por FileSystemLoader.
 # - Ruta de la base: configurable con ENV `ENCARRERAOK_DB_PATH`.
 
-from fastapi import FastAPI, Request, Form, HTTPException, UploadFile, File
+from fastapi import FastAPI, Request, Form, HTTPException, UploadFile, File, Depends, status
 from fastapi.responses import HTMLResponse
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from jinja2 import Environment, DictLoader, select_autoescape
 from pydantic import BaseModel
 from datetime import datetime, date
 import sqlite3
 import os
+import secrets
 import stat
 import hashlib
 import re
@@ -1740,11 +1742,35 @@ def procesar_aceptacion(
         raise HTTPException(status_code=500, detail="Error interno del servidor")
 
 
+# ------------------------------------------------------------------------------
+# Seguridad (Basic Auth para Admin)
+# ------------------------------------------------------------------------------
+security = HTTPBasic()
+
+def get_current_username(credentials: HTTPBasicCredentials = Depends(security)):
+    """Verifica credenciales para acceso admin."""
+    # Valores por defecto para desarrollo; en producción usar ENV vars
+    correct_username = os.environ.get("ADMIN_USER", "admin")
+    correct_password = os.environ.get("ADMIN_PASSWORD", "encarrera2025")
+    
+    # Comparación segura para evitar timing attacks
+    is_correct_username = secrets.compare_digest(credentials.username.encode("utf8"), correct_username.encode("utf8"))
+    is_correct_password = secrets.compare_digest(credentials.password.encode("utf8"), correct_password.encode("utf8"))
+    
+    if not (is_correct_username and is_correct_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Credenciales incorrectas",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    return credentials.username
+
+
 @app.get("/admin/aceptaciones", response_class=HTMLResponse)
-def admin_aceptaciones() -> HTMLResponse:
+def admin_aceptaciones(username: str = Depends(get_current_username)) -> HTMLResponse:
     """
     Lista de aceptaciones.
-    - Sin autenticación en el MVP.
+    - Requiere autenticación Basic Auth.
     - Ordenadas por ID descendente.
     """
     datos = listar_aceptaciones()
@@ -1754,9 +1780,10 @@ def admin_aceptaciones() -> HTMLResponse:
 
 
 @app.get("/admin/aceptaciones/{aceptacion_id}", response_class=HTMLResponse)
-def admin_aceptacion_detalle(aceptacion_id: int) -> HTMLResponse:
+def admin_aceptacion_detalle(aceptacion_id: int, username: str = Depends(get_current_username)) -> HTMLResponse:
     """
     Muestra detalle de una aceptación específica.
+    - Requiere autenticación Basic Auth.
     - Incluye todos los datos + paths + verificación de existencia de archivos.
     """
     aceptacion = get_aceptacion_detalle(aceptacion_id)

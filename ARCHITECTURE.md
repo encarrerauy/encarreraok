@@ -288,9 +288,9 @@ UX mobile audio ✔
 
 Logging ✔
 
-Fase 4 — Pendiente ❌
+Fase 4 — En Progreso ⚠️
 
-Admin con autenticación
+Admin con autenticación (Basic Auth implementada ✅)
 
 Export legal (PDF / ZIP)
 
