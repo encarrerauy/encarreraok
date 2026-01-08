@@ -92,28 +92,56 @@ Tienes 3 opciones. Elige la que te resulte más fácil:
 
 ---
 
-### 🌟 OPCIÓN 1: Usando Git (La más fácil si ya está configurado)
+### 🌟 OPCIÓN 1: Usando Git (Recomendada)
+
+Esta es la forma más profesional y rápida. Sincroniza tu servidor con GitHub.
 
 #### 4.1. Ir al directorio de la aplicación
 ```bash
 cd /var/www/encarreraok
 ```
 
-#### 4.2. Verificar si Git está configurado
+#### 4.2. Verificar si es un repositorio Git
 ```bash
 git status
 ```
 
-**Si funciona:** Continúa con el paso 4.3  
-**Si da error:** Ve a la OPCIÓN 2 o 3
-
-#### 4.3. Actualizar desde GitHub
+**CASO A: Si dice "On branch main" (o master):**
+¡Genial! Solo ejecuta:
 ```bash
-# Obtener los últimos cambios
+# Descargar y aplicar cambios
 git pull origin main
 ```
 
-✅ **¡Listo! El archivo se actualizó automáticamente.**
+**CASO B: Si dice "fatal: not a git repository":**
+Significa que subiste los archivos manualmente antes. Convirtámoslo en repositorio (solo se hace una vez):
+```bash
+# 1. Inicializar git
+git init
+
+# 2. Configurar el origen (GitHub)
+git remote add origin https://github.com/encarrerauy/encarreraok.git
+
+# 3. Descargar la historia
+git fetch origin
+
+# 4. Forzar que tu carpeta sea idéntica a GitHub (CUIDADO: Borra cambios locales no guardados)
+git reset --hard origin/main
+```
+
+**CASO C: Si hay conflictos (error al hacer pull):**
+Si editaste cosas en el servidor y GitHub no te deja actualizar:
+```bash
+# Opción segura: Guardar tus cambios locales temporalmente
+git stash
+git pull origin main
+
+# Opcion destructiva: Sobrescribir todo con lo de GitHub (recomendado si no te importan los cambios locales)
+git fetch origin
+git reset --hard origin/main
+```
+
+✅ **¡Listo! El archivo se actualizó.**
 
 ---
 
@@ -296,5 +324,5 @@ sudo systemctl status encarreraok
 
 **¿Tienes dudas?** Revisa la sección "Solución de Problemas" o consulta los logs del sistema.
 
-**Última actualización:** Diciembre 2025
+**Última actualización:** Enero 2026
 
