@@ -669,7 +669,131 @@ templates_env = Environment(
             </body>
             </html>
             """,
-            # Plantilla de confirmación
+            # Plantilla de detalle de aceptación
+            "admin_aceptacion_detalle.html": """
+            <!doctype html>
+            <html lang="es">
+            <head>
+                <meta charset="utf-8" />
+                <meta name="viewport" content="width=device-width, initial-scale=1" />
+                <title>Detalle Aceptación #{{ aceptacion.id }}</title>
+                <style>
+                    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 24px; }
+                    .card { max-width: 800px; margin: 0 auto; padding: 24px; border: 1px solid #ddd; border-radius: 8px; }
+                    .field { margin-bottom: 16px; }
+                    .label { font-weight: bold; display: block; color: #555; }
+                    .value { word-break: break-all; }
+                    .status-ok { color: green; font-weight: bold; }
+                    .status-missing { color: red; font-weight: bold; }
+                    h2 { margin-top: 24px; border-bottom: 1px solid #eee; padding-bottom: 8px; }
+                    .btn-back { display: inline-block; margin-bottom: 16px; text-decoration: none; color: #0d6efd; }
+                </style>
+            </head>
+            <body>
+                <div class="card">
+                    <a href="/admin/aceptaciones" class="btn-back">← Volver a lista</a>
+                    <h1>Aceptación #{{ aceptacion.id }}</h1>
+                    
+                    <h2>Participante</h2>
+                    <div class="field">
+                        <span class="label">Nombre:</span>
+                        <span class="value">{{ aceptacion.nombre_participante }}</span>
+                    </div>
+                    <div class="field">
+                        <span class="label">Documento:</span>
+                        <span class="value">{{ aceptacion.documento }}</span>
+                    </div>
+
+                    <h2>Evento</h2>
+                    <div class="field">
+                        <span class="label">Evento:</span>
+                        <span class="value">{{ aceptacion.evento_nombre }} ({{ aceptacion.evento_fecha }})</span>
+                    </div>
+                    <div class="field">
+                        <span class="label">Organizador:</span>
+                        <span class="value">{{ aceptacion.evento_organizador }}</span>
+                    </div>
+
+                    <h2>Auditoría</h2>
+                    <div class="field">
+                        <span class="label">Fecha/Hora (UTC):</span>
+                        <span class="value">{{ aceptacion.fecha_hora }}</span>
+                    </div>
+                    <div class="field">
+                        <span class="label">IP:</span>
+                        <span class="value">{{ aceptacion.ip }}</span>
+                    </div>
+                    <div class="field">
+                        <span class="label">User Agent:</span>
+                        <span class="value">{{ aceptacion.user_agent }}</span>
+                    </div>
+                    <div class="field">
+                        <span class="label">Hash Deslinde:</span>
+                        <span class="value">{{ aceptacion.deslinde_hash_sha256 }}</span>
+                    </div>
+
+                    <h2>Evidencias</h2>
+                    
+                    <div class="field">
+                        <span class="label">Firma:</span>
+                        <div class="value">Path: {{ aceptacion.firma_path or 'N/A' }}</div>
+                        <div>Estado: 
+                            {% if aceptacion.firma_path %}
+                                <span class="{{ 'status-ok' if aceptacion.firma_exists else 'status-missing' }}">
+                                    {{ 'ARCHIVO EXISTE' if aceptacion.firma_exists else 'ARCHIVO NO ENCONTRADO' }}
+                                </span>
+                            {% else %}
+                                -
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    <div class="field">
+                        <span class="label">Documento Frente:</span>
+                        <div class="value">Path: {{ aceptacion.doc_frente_path or 'N/A' }}</div>
+                        <div>Estado: 
+                            {% if aceptacion.doc_frente_path %}
+                                <span class="{{ 'status-ok' if aceptacion.doc_frente_exists else 'status-missing' }}">
+                                    {{ 'ARCHIVO EXISTE' if aceptacion.doc_frente_exists else 'ARCHIVO NO ENCONTRADO' }}
+                                </span>
+                            {% else %}
+                                -
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    <div class="field">
+                        <span class="label">Documento Dorso:</span>
+                        <div class="value">Path: {{ aceptacion.doc_dorso_path or 'N/A' }}</div>
+                        <div>Estado: 
+                            {% if aceptacion.doc_dorso_path %}
+                                <span class="{{ 'status-ok' if aceptacion.doc_dorso_exists else 'status-missing' }}">
+                                    {{ 'ARCHIVO EXISTE' if aceptacion.doc_dorso_exists else 'ARCHIVO NO ENCONTRADO' }}
+                                </span>
+                            {% else %}
+                                -
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    <div class="field">
+                        <span class="label">Audio:</span>
+                        <div class="value">Path: {{ aceptacion.audio_path or 'N/A' }}</div>
+                        <div>Estado: 
+                            {% if aceptacion.audio_path %}
+                                <span class="{{ 'status-ok' if aceptacion.audio_exists else 'status-missing' }}">
+                                    {{ 'ARCHIVO EXISTE' if aceptacion.audio_exists else 'ARCHIVO NO ENCONTRADO' }}
+                                </span>
+                            {% else %}
+                                -
+                            {% endif %}
+                        </div>
+                    </div>
+
+                </div>
+            </body>
+            </html>
+            """,            # Plantilla de confirmación
             "confirmacion.html": """
             <!doctype html>
             <html lang="es">
@@ -1438,81 +1562,81 @@ def procesar_aceptacion(
                 max_doc_bytes = MAX_IMAGE_DOC_MB * 1024 * 1024
                 
                 # Validar frente
-            doc_frente.file.seek(0, os.SEEK_END)
-            size_frente = doc_frente.file.tell()
-            doc_frente.file.seek(0)
-            if size_frente > max_doc_bytes:
-                app_logger.warning(f"[{request_id}] Doc frente demasiado grande: {size_frente} bytes")
-                raise HTTPException(
-                    status_code=413,
-                    detail=f"La imagen del frente es demasiado grande. Máximo permitido: {MAX_IMAGE_DOC_MB} MB."
-                )
-            
-            # Validar dorso
-            doc_dorso.file.seek(0, os.SEEK_END)
-            size_dorso = doc_dorso.file.tell()
-            doc_dorso.file.seek(0)
-            if size_dorso > max_doc_bytes:
-                app_logger.warning(f"[{request_id}] Doc dorso demasiado grande: {size_dorso} bytes")
-                raise HTTPException(
-                    status_code=413,
-                    detail=f"La imagen del dorso es demasiado grande. Máximo permitido: {MAX_IMAGE_DOC_MB} MB."
-                )
-            
-            # Frente
-            ext_frente = os.path.splitext(doc_frente.filename)[1]
-            if not ext_frente: ext_frente = ".jpg"
-            filename_frente = f"{uuid.uuid4()}_frente{ext_frente}"
-            filepath_frente = os.path.join(DOCUMENTOS_DIR, filename_frente)
-            with open(filepath_frente, "wb") as buffer:
-                shutil.copyfileobj(doc_frente.file, buffer)
-            
-            # Comprimir si es necesario (si supera 2MB)
-            if size_frente > MAX_IMAGE_COMPRESS_THRESHOLD_MB * 1024 * 1024:
-                app_logger.info(f"[{request_id}] Comprimiendo doc frente: {size_frente} bytes")
-                compressed = comprimir_imagen(filepath_frente, MAX_IMAGE_COMPRESS_TARGET_MB)
-                if not compressed:
-                    # Si no se pudo comprimir, rechazar
-                    os.remove(filepath_frente)
-                    app_logger.error(f"[{request_id}] No se pudo comprimir doc frente")
+                doc_frente.file.seek(0, os.SEEK_END)
+                size_frente = doc_frente.file.tell()
+                doc_frente.file.seek(0)
+                if size_frente > max_doc_bytes:
+                    app_logger.warning(f"[{request_id}] Doc frente demasiado grande: {size_frente} bytes")
                     raise HTTPException(
                         status_code=413,
-                        detail=f"La imagen del frente es demasiado grande y no se pudo comprimir. Máximo permitido: {MAX_IMAGE_DOC_MB} MB."
+                        detail=f"La imagen del frente es demasiado grande. Máximo permitido: {MAX_IMAGE_DOC_MB} MB."
                     )
-                final_size_frente = os.path.getsize(filepath_frente)
-                app_logger.info(f"[{request_id}] Doc frente comprimido: {size_frente} -> {final_size_frente} bytes")
-            else:
-                final_size_frente = size_frente
             
-            doc_frente_path_final = filepath_frente
-            app_logger.info(f"[{request_id}] Doc frente guardado: path={filepath_frente}, size={final_size_frente} bytes")
-            
-            # Dorso
-            ext_dorso = os.path.splitext(doc_dorso.filename)[1]
-            if not ext_dorso: ext_dorso = ".jpg"
-            filename_dorso = f"{uuid.uuid4()}_dorso{ext_dorso}"
-            filepath_dorso = os.path.join(DOCUMENTOS_DIR, filename_dorso)
-            with open(filepath_dorso, "wb") as buffer:
-                shutil.copyfileobj(doc_dorso.file, buffer)
-            
-            # Comprimir si es necesario
-            if size_dorso > MAX_IMAGE_COMPRESS_THRESHOLD_MB * 1024 * 1024:
-                app_logger.info(f"[{request_id}] Comprimiendo doc dorso: {size_dorso} bytes")
-                compressed = comprimir_imagen(filepath_dorso, MAX_IMAGE_COMPRESS_TARGET_MB)
-                if not compressed:
-                    # Si no se pudo comprimir, rechazar
-                    os.remove(filepath_dorso)
-                    if doc_frente_path_final and os.path.exists(doc_frente_path_final):
-                        os.remove(doc_frente_path_final)
-                    app_logger.error(f"[{request_id}] No se pudo comprimir doc dorso")
+                # Validar dorso
+                doc_dorso.file.seek(0, os.SEEK_END)
+                size_dorso = doc_dorso.file.tell()
+                doc_dorso.file.seek(0)
+                if size_dorso > max_doc_bytes:
+                    app_logger.warning(f"[{request_id}] Doc dorso demasiado grande: {size_dorso} bytes")
                     raise HTTPException(
                         status_code=413,
-                        detail=f"La imagen del dorso es demasiado grande y no se pudo comprimir. Máximo permitido: {MAX_IMAGE_DOC_MB} MB."
+                        detail=f"La imagen del dorso es demasiado grande. Máximo permitido: {MAX_IMAGE_DOC_MB} MB."
                     )
-                final_size_dorso = os.path.getsize(filepath_dorso)
-                app_logger.info(f"[{request_id}] Doc dorso comprimido: {size_dorso} -> {final_size_dorso} bytes")
-            else:
-                final_size_dorso = size_dorso
+            
+                # Frente
+                ext_frente = os.path.splitext(doc_frente.filename)[1]
+                if not ext_frente: ext_frente = ".jpg"
+                filename_frente = f"{uuid.uuid4()}_frente{ext_frente}"
+                filepath_frente = os.path.join(DOCUMENTOS_DIR, filename_frente)
+                with open(filepath_frente, "wb") as buffer:
+                    shutil.copyfileobj(doc_frente.file, buffer)
+            
+                # Comprimir si es necesario (si supera 2MB)
+                if size_frente > MAX_IMAGE_COMPRESS_THRESHOLD_MB * 1024 * 1024:
+                    app_logger.info(f"[{request_id}] Comprimiendo doc frente: {size_frente} bytes")
+                    compressed = comprimir_imagen(filepath_frente, MAX_IMAGE_COMPRESS_TARGET_MB)
+                    if not compressed:
+                        # Si no se pudo comprimir, rechazar
+                        os.remove(filepath_frente)
+                        app_logger.error(f"[{request_id}] No se pudo comprimir doc frente")
+                        raise HTTPException(
+                            status_code=413,
+                            detail=f"La imagen del frente es demasiado grande y no se pudo comprimir. Máximo permitido: {MAX_IMAGE_DOC_MB} MB."
+                        )
+                    final_size_frente = os.path.getsize(filepath_frente)
+                    app_logger.info(f"[{request_id}] Doc frente comprimido: {size_frente} -> {final_size_frente} bytes")
+                else:
+                    final_size_frente = size_frente
+            
+                doc_frente_path_final = filepath_frente
+                app_logger.info(f"[{request_id}] Doc frente guardado: path={filepath_frente}, size={final_size_frente} bytes")
+            
+                # Dorso
+                ext_dorso = os.path.splitext(doc_dorso.filename)[1]
+                if not ext_dorso: ext_dorso = ".jpg"
+                filename_dorso = f"{uuid.uuid4()}_dorso{ext_dorso}"
+                filepath_dorso = os.path.join(DOCUMENTOS_DIR, filename_dorso)
+                with open(filepath_dorso, "wb") as buffer:
+                    shutil.copyfileobj(doc_dorso.file, buffer)
+            
+                # Comprimir si es necesario
+                if size_dorso > MAX_IMAGE_COMPRESS_THRESHOLD_MB * 1024 * 1024:
+                    app_logger.info(f"[{request_id}] Comprimiendo doc dorso: {size_dorso} bytes")
+                    compressed = comprimir_imagen(filepath_dorso, MAX_IMAGE_COMPRESS_TARGET_MB)
+                    if not compressed:
+                        # Si no se pudo comprimir, rechazar
+                        os.remove(filepath_dorso)
+                        if doc_frente_path_final and os.path.exists(doc_frente_path_final):
+                            os.remove(doc_frente_path_final)
+                        app_logger.error(f"[{request_id}] No se pudo comprimir doc dorso")
+                        raise HTTPException(
+                            status_code=413,
+                            detail=f"La imagen del dorso es demasiado grande y no se pudo comprimir. Máximo permitido: {MAX_IMAGE_DOC_MB} MB."
+                        )
+                    final_size_dorso = os.path.getsize(filepath_dorso)
+                    app_logger.info(f"[{request_id}] Doc dorso comprimido: {size_dorso} -> {final_size_dorso} bytes")
+                else:
+                    final_size_dorso = size_dorso
             
                 doc_dorso_path_final = filepath_dorso
                 app_logger.info(f"[{request_id}] Doc dorso guardado: path={filepath_dorso}, size={final_size_dorso} bytes")
@@ -1533,47 +1657,47 @@ def procesar_aceptacion(
                         pass
                 raise HTTPException(status_code=500, detail="Error al guardar las imágenes del documento")
 
-    # Procesamiento de audio
-    audio_path_final = None
-    if audio_base64:
-        # data:audio/webm;base64,.....
-        header = ""
-        if "," in audio_base64:
-            header, encoded = audio_base64.split(",", 1)
-        else:
-            encoded = audio_base64
-        
-        try:
-            data = base64.b64decode(encoded)
+        # Procesamiento de audio
+        audio_path_final = None
+        if audio_base64:
+            # data:audio/webm;base64,.....
+            header = ""
+            if "," in audio_base64:
+                header, encoded = audio_base64.split(",", 1)
+            else:
+                encoded = audio_base64
             
-            # Validación tamaño audio backend (prevención 413)
-            max_audio_bytes = MAX_AUDIO_MB * 1024 * 1024
-            audio_size = len(data)
-            if audio_size > max_audio_bytes:
-                app_logger.warning(f"[{request_id}] Audio demasiado grande: {audio_size} bytes")
-                raise HTTPException(
-                    status_code=413,
-                    detail=f"El audio es demasiado grande. Máximo permitido: {MAX_AUDIO_MB} MB. Por favor, intente ser más breve."
-                )
-            
-            # Extensión default
-            ext = ".webm"
-            if "audio/mp3" in header: ext = ".mp3"
-            elif "audio/wav" in header: ext = ".wav"
-            elif "audio/ogg" in header: ext = ".ogg"
-            elif "audio/mp4" in header: ext = ".mp4"
-            
-            filename_audio = f"{uuid.uuid4()}{ext}"
-            filepath_audio = os.path.join(AUDIOS_DIR, filename_audio)
-            with open(filepath_audio, "wb") as f:
-                f.write(data)
-            audio_path_final = filepath_audio
-            app_logger.info(f"[{request_id}] Audio guardado: path={filepath_audio}, size={audio_size} bytes")
-        except HTTPException:
-            raise
-        except Exception:
-            if req_audio:
-                raise HTTPException(status_code=500, detail="Error al guardar el audio")
+            try:
+                data = base64.b64decode(encoded)
+                
+                # Validación tamaño audio backend (prevención 413)
+                max_audio_bytes = MAX_AUDIO_MB * 1024 * 1024
+                audio_size = len(data)
+                if audio_size > max_audio_bytes:
+                    app_logger.warning(f"[{request_id}] Audio demasiado grande: {audio_size} bytes")
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"El audio es demasiado grande. Máximo permitido: {MAX_AUDIO_MB} MB. Por favor, intente ser más breve."
+                    )
+                
+                # Extensión default
+                ext = ".webm"
+                if "audio/mp3" in header: ext = ".mp3"
+                elif "audio/wav" in header: ext = ".wav"
+                elif "audio/ogg" in header: ext = ".ogg"
+                elif "audio/mp4" in header: ext = ".mp4"
+                
+                filename_audio = f"{uuid.uuid4()}{ext}"
+                filepath_audio = os.path.join(AUDIOS_DIR, filename_audio)
+                with open(filepath_audio, "wb") as f:
+                    f.write(data)
+                audio_path_final = filepath_audio
+                app_logger.info(f"[{request_id}] Audio guardado: path={filepath_audio}, size={audio_size} bytes")
+            except HTTPException:
+                raise
+            except Exception:
+                if req_audio:
+                    raise HTTPException(status_code=500, detail="Error al guardar el audio")
 
         aceptacion_id = insertar_aceptacion(
             evento_id=evento_id,
