@@ -22,7 +22,7 @@
 # - Ruta de la base: configurable con ENV `ENCARRERAOK_DB_PATH`.
 
 from fastapi import FastAPI, Request, Form, HTTPException, UploadFile, File, Depends, status
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from jinja2 import Environment, DictLoader, select_autoescape
 from pydantic import BaseModel
@@ -36,6 +36,7 @@ import re
 import base64
 import uuid
 import shutil
+import zipfile
 from typing import Optional, List, Dict, Any
 import io
 import logging
@@ -828,15 +829,54 @@ templates_env = Environment(
                 <title>Admin - Aceptaciones</title>
                 <style>
                     body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 24px; }
-                    table { border-collapse: collapse; width: 100%; }
+                    table { border-collapse: collapse; width: 100%; margin-top: 20px; }
                     th, td { border: 1px solid #ddd; padding: 8px; }
                     th { background: #f2f2f2; text-align: left; }
                     .muted { color: #666; font-size: 0.95em; }
+                    .toolbar { 
+                        background: #f8f9fa; 
+                        padding: 16px; 
+                        border-radius: 8px; 
+                        margin-bottom: 20px; 
+                        display: flex; 
+                        gap: 16px; 
+                        align-items: center; 
+                        flex-wrap: wrap;
+                    }
+                    .btn { padding: 8px 16px; border-radius: 4px; text-decoration: none; border: 1px solid transparent; cursor: pointer; }
+                    .btn-primary { background: #0d6efd; color: white; border-color: #0d6efd; }
+                    .btn-success { background: #198754; color: white; border-color: #198754; }
+                    .btn-outline { background: white; color: #6c757d; border-color: #6c757d; }
+                    select { padding: 8px; border-radius: 4px; border: 1px solid #ced4da; min-width: 200px; }
                 </style>
             </head>
             <body>
                 <h1>Aceptaciones</h1>
-                <p class="muted">Listado básico sin autenticación (MVP).</p>
+                
+                <div class="toolbar">
+                    <form action="/admin/aceptaciones" method="get" style="display: flex; gap: 10px; align-items: center;">
+                        <label for="evento_id">Filtrar por evento:</label>
+                        <select name="evento_id" id="evento_id" onchange="this.form.submit()">
+                            <option value="">-- Ver todos --</option>
+                            {% for e in eventos %}
+                                <option value="{{ e.id }}" {% if filtro_evento_id|string == e.id|string %}selected{% endif %}>
+                                    {{ e.nombre }} ({{ e.fecha }})
+                                </option>
+                            {% endfor %}
+                        </select>
+                        <!-- <button type="submit" class="btn btn-primary">Filtrar</button> -->
+                    </form>
+
+                    {% if filtro_evento_id %}
+                        <a href="/admin/exportar_zip/{{ filtro_evento_id }}" class="btn btn-success">
+                            📦 Descargar ZIP del Evento
+                        </a>
+                        <a href="/admin/aceptaciones" class="btn btn-outline">Limpiar filtro</a>
+                    {% endif %}
+                </div>
+
+                <p class="muted">Mostrando {{ aceptaciones|length }} registros.</p>
+                
                 <table>
                     <thead>
                         <tr>
@@ -1108,13 +1148,24 @@ def insertar_aceptacion(
         conn.close()
 
 
-def listar_aceptaciones() -> List[Dict[str, Any]]:
-    """Lista aceptaciones con datos del evento (join simple)."""
+def listar_eventos() -> List[Dict[str, Any]]:
+    """Lista todos los eventos para filtrado."""
     conn = get_connection()
     try:
         cur = conn.cursor()
-        cur.execute(
-            """
+        cur.execute("SELECT id, nombre, fecha, organizador, activo FROM eventos ORDER BY id DESC")
+        rows = cur.fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def listar_aceptaciones(evento_id: Optional[int] = None) -> List[Dict[str, Any]]:
+    """Lista aceptaciones con datos del evento (join simple). Filtra por evento si se especifica."""
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        query = """
             SELECT
                 a.id,
                 a.evento_id,
@@ -1133,9 +1184,15 @@ def listar_aceptaciones() -> List[Dict[str, Any]]:
                 a.audio_path
             FROM aceptaciones a
             JOIN eventos e ON e.id = a.evento_id
-            ORDER BY a.id DESC
-            """
-        )
+        """
+        params = []
+        if evento_id is not None:
+            query += " WHERE a.evento_id = ? "
+            params.append(evento_id)
+        
+        query += " ORDER BY a.id DESC"
+        
+        cur.execute(query, tuple(params))
         rows = cur.fetchall()
         return [dict(r) for r in rows]
     finally:
@@ -1767,16 +1824,102 @@ def get_current_username(credentials: HTTPBasicCredentials = Depends(security)):
 
 
 @app.get("/admin/aceptaciones", response_class=HTMLResponse)
-def admin_aceptaciones(username: str = Depends(get_current_username)) -> HTMLResponse:
+def admin_aceptaciones(
+    evento_id: Optional[int] = None,
+    username: str = Depends(get_current_username)
+) -> HTMLResponse:
     """
     Lista de aceptaciones.
     - Requiere autenticación Basic Auth.
     - Ordenadas por ID descendente.
+    - Soporta filtrado por evento_id.
     """
-    datos = listar_aceptaciones()
+    datos = listar_aceptaciones(evento_id=evento_id)
+    eventos = listar_eventos()
+    
+    # Prepara contexto para la plantilla
+    context = {
+        "aceptaciones": datos,
+        "eventos": eventos,
+        "filtro_evento_id": evento_id
+    }
+    
     template = templates_env.get_template("admin_aceptaciones.html")
-    html = template.render(aceptaciones=datos)
+    html = template.render(**context)
     return HTMLResponse(content=html)
+
+
+@app.get("/admin/exportar_zip/{evento_id}")
+def admin_exportar_zip(
+    evento_id: int,
+    username: str = Depends(get_current_username)
+):
+    """
+    Genera y descarga un ZIP con todas las evidencias de un evento.
+    Estructura del ZIP:
+       /ID_NombreParticipante/
+           - firma.png
+           - doc_frente.jpg
+           - doc_dorso.jpg
+           - audio.webm
+    """
+    # 1. Obtener datos del evento y aceptaciones
+    evento = get_evento(evento_id)
+    if not evento:
+        raise HTTPException(status_code=404, detail="Evento no encontrado")
+        
+    aceptaciones = listar_aceptaciones(evento_id=evento_id)
+    if not aceptaciones:
+        raise HTTPException(status_code=404, detail="No hay aceptaciones para este evento")
+
+    # 2. Crear buffer en memoria para el ZIP
+    zip_buffer = io.BytesIO()
+    
+    # 3. Escribir ZIP
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+        for a in aceptaciones:
+            # Crear nombre de carpeta segura: ID_Nombre (sanitizado)
+            # Normalizar nombre para evitar caracteres inválidos en path
+            clean_name = "".join([c for c in a['nombre_participante'] if c.isalnum() or c in (' ', '_', '-')]).strip()
+            folder_name = f"{a['id']}_{clean_name}"
+            
+            # Helper para agregar archivo si existe
+            def agregar_archivo(path_bd, nombre_salida):
+                if path_bd and os.path.exists(path_bd):
+                    try:
+                        # Calcular path relativo dentro del ZIP
+                        arcname = f"{folder_name}/{nombre_salida}"
+                        zip_file.write(path_bd, arcname)
+                    except Exception as e:
+                        app_logger.error(f"Error agregando archivo {path_bd} al ZIP: {e}")
+
+            # Agregar evidencias
+            agregar_archivo(a.get('firma_path'), "firma.png") 
+            
+            if a.get('doc_frente_path'):
+                ext = os.path.splitext(a['doc_frente_path'])[1] or ".jpg"
+                agregar_archivo(a['doc_frente_path'], f"doc_frente{ext}")
+                
+            if a.get('doc_dorso_path'):
+                ext = os.path.splitext(a['doc_dorso_path'])[1] or ".jpg"
+                agregar_archivo(a['doc_dorso_path'], f"doc_dorso{ext}")
+
+            if a.get('audio_path'):
+                ext = os.path.splitext(a['audio_path'])[1] or ".webm"
+                agregar_archivo(a['audio_path'], f"audio{ext}")
+
+    # 4. Preparar respuesta
+    zip_buffer.seek(0)
+    
+    # Nombre del archivo: Evento_Fecha.zip
+    safe_event_name = "".join([c for c in evento['nombre'] if c.isalnum() or c in (' ', '_', '-')]).strip().replace(" ", "_")
+    filename = f"{safe_event_name}_{evento['fecha']}.zip"
+    
+    headers = {
+        "Content-Disposition": f'attachment; filename="{filename}"'
+    }
+    
+    return StreamingResponse(zip_buffer, media_type="application/zip", headers=headers)
 
 
 @app.get("/admin/aceptaciones/{aceptacion_id}", response_class=HTMLResponse)

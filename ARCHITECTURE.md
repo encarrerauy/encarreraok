@@ -292,7 +292,7 @@ Fase 4 — En Progreso ⚠️
 
 Admin con autenticación (Basic Auth implementada ✅)
 
-Export legal (PDF / ZIP)
+Export legal (PDF / ZIP) (Exportación ZIP implementada ✅)
 
 Auditoría avanzada
 
