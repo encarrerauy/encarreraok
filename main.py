@@ -644,6 +644,78 @@ templates_env = Environment(
                                 btnPlay.addEventListener('click', playAudio);
                                 btnReset.addEventListener('click', resetAudio);
                                 
+                                // Función para manejar accesibilidad (Audio Exento)
+                                function toggleAudioRequirement() {
+                                    var exentoCheckbox = document.getElementById('audio_exento');
+                                    var isExento = exentoCheckbox && exentoCheckbox.checked;
+                                    
+                                    var audioContainer = document.querySelector('.audio-container');
+                                    var audioText = audioContainer ? audioContainer.querySelector('.audio-text') : null;
+                                    var audioControls = document.querySelector('.audio-controls');
+                                    
+                                    if (isExento) {
+                                        // Ocultar elementos
+                                        if(audioText) audioText.style.display = 'none';
+                                        if(audioControls) audioControls.style.display = 'none';
+                                        if(audioPreview) audioPreview.style.display = 'none';
+                                        
+                                        // Limpiar estado
+                                        audioBlob = null;
+                                        if(hiddenInput) hiddenInput.value = "";
+                                        canPlayback = false;
+                                        hideAudioFeedback();
+                                        
+                                        // Deshabilitar botones (aunque estén ocultos, por seguridad)
+                                        if(btnRecord) btnRecord.disabled = true;
+                                        if(btnStop) btnStop.disabled = true;
+                                        if(btnPlay) btnPlay.disabled = true;
+                                        if(btnReset) btnReset.disabled = true;
+                                        
+                                        // Mostrar mensaje de estado
+                                        if(status) {
+                                            status.textContent = "Audio exento por imposibilidad física (accesibilidad)";
+                                            status.style.color = "#0d6efd"; // Azul informativo
+                                            // Aseguramos que el status sea visible aunque audioControls esté oculto?
+                                            // El status está DENTRO de audioControls en el HTML actual:
+                                            // <div class="audio-controls"> ... <span class="audio-status"></span> </div>
+                                            // SI ocultamos audioControls, NO se verá el mensaje.
+                                            // Debemos mover el status fuera o manejarlo diferente.
+                                            // Requerimiento: "Ocultar completamente: El bloque .audio-controls"
+                                            // Requerimiento: "Mostrar mensaje informativo"
+                                            // Solución: Crear/Mostrar un mensaje fuera de los controles.
+                                            
+                                            // Vamos a insertar un mensaje si no existe, o usar uno existente fuera.
+                                            // En el HTML actual no hay slot fuera. 
+                                            // Insertaremos un div dinámico o usaremos el feedback container.
+                                        }
+                                        
+                                        var feedback = document.getElementById('audio-feedback');
+                                        if (feedback) {
+                                            feedback.textContent = "ℹ️ Audio exento por imposibilidad física (accesibilidad)";
+                                            feedback.className = 'file-feedback info';
+                                            feedback.style.display = 'block';
+                                        }
+                                        
+                                    } else {
+                                        // Restaurar elementos
+                                        if(audioText) audioText.style.display = '';
+                                        if(audioControls) audioControls.style.display = ''; // Restaurar display original (flex/block)
+                                        // audioPreview se queda oculto hasta que haya grabación
+                                        
+                                        // Restaurar estado inicial
+                                        resetAudio();
+                                    }
+                                }
+                                
+                                // Exponer globalmente y asignar listener
+                                window.toggleAudioRequirement = toggleAudioRequirement;
+                                var exentoCheckbox = document.getElementById('audio_exento');
+                                if(exentoCheckbox) {
+                                    exentoCheckbox.addEventListener('change', toggleAudioRequirement);
+                                    // Inicializar al cargar
+                                    toggleAudioRequirement();
+                                }
+
                                 // Validación al enviar
                                 var form = document.getElementById('acceptForm');
                                 form.addEventListener('submit', function(e) {
