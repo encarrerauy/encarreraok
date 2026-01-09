@@ -1,4 +1,5 @@
 EncarreraOK — Architecture & Technical Decisions
+
 1. Propósito del sistema
 
 EncarreraOK es un sistema de aceptación legal digital para eventos deportivos, diseñado para:
@@ -256,8 +257,9 @@ Visualización de paths
 
 Verificación de existencia de archivos
 
-⚠️ No hay autenticación todavía.
-Esto es intencional y se hará en fases posteriores.
+CRUD de Eventos (Crear, Editar, Activar/Desactivar)
+
+Autenticación Basic Auth para rutas de admin
 
 10. Fases del proyecto (estado real)
 Fase 1 — Deslinde legal versionado ✅
@@ -296,6 +298,8 @@ Export legal (PDF / ZIP) (Exportación ZIP implementada ✅)
 
 Gestión de Datos (Eliminación Parcial/Total implementada ✅)
 
+CRUD Eventos (Implementado ✅)
+
 Auditoría avanzada
 
 11. Reglas para asistentes IA (Cursor / otros)
@@ -322,7 +326,42 @@ Funcionar detrás de Nginx
 
 ⚠️ “Funciona en local” no es suficiente.
 
-12. Filosofía final
+12. Despliegue y Actualización (Protocolo Obligatorio)
+
+Cada vez que se realiza un commit y push a GitHub, se deben seguir estos pasos estrictos para actualizar el servidor de producción.
+
+1. Acceder al servidor
+   ssh root@<IP_SERVIDOR>
+
+2. Ir al directorio del proyecto
+   cd /var/www/encarreraok/app
+
+3. Verificar estado actual
+   git status
+
+4. Traer cambios (limpiando cambios locales si es necesario, ya que main.py es la fuente de verdad)
+   git fetch origin
+   git reset --hard origin/main
+
+5. Verificar sintaxis antes de reiniciar
+   python3 -m py_compile main.py
+
+6. Reiniciar servicio
+   systemctl restart encarreraok
+
+7. Verificar estado y logs
+   systemctl status encarreraok
+   journalctl -u encarreraok -f
+
+8. Verificación funcional
+   - Probar acceso a /admin/eventos
+   - Probar carga de formulario /e/{id}
+
+⚠️ Si el servicio falla, hacer rollback inmediato:
+   git reset --hard HEAD@{1}
+   systemctl restart encarreraok
+
+13. Filosofía final
 
 EncarreraOK no es una app, es un sistema legal.
 
@@ -333,6 +372,3 @@ Algo falló
 Algo se rompió
 
 Algo pasó en producción
-
-Este archivo es la memoria del proyecto.
-No se optimiza sin entenderlo completo.
