@@ -1245,6 +1245,10 @@ templates_env = Environment(
                                 <label for="req_documento">Requiere Fotos Documento (Frente/Dorso)</label>
                             </div>
                             <div class="checkbox-group">
+                                <input type="checkbox" id="req_salud" name="req_salud" value="1" {{ 'checked' if (evento and evento.req_salud) else '' }}>
+                                <label for="req_salud">Requiere Documento de Salud</label>
+                            </div>
+                            <div class="checkbox-group">
                                 <input type="checkbox" id="req_audio" name="req_audio" value="1" {{ 'checked' if (evento and evento.req_audio) else '' }}>
                                 <label for="req_audio">Requiere Audio Aceptación</label>
                             </div>
@@ -1545,6 +1549,7 @@ def crear_evento(
     activo: int,
     req_firma: int,
     req_documento: int,
+    req_salud: int,
     req_audio: int,
     deslinde_version: str
 ) -> int:
@@ -1555,10 +1560,10 @@ def crear_evento(
         cur.execute(
             """
             INSERT INTO eventos (
-                nombre, fecha, organizador, activo, req_firma, req_documento, req_audio, deslinde_version
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                nombre, fecha, organizador, activo, req_firma, req_documento, req_salud, req_audio, deslinde_version
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (nombre, fecha, organizador, activo, req_firma, req_documento, req_audio, deslinde_version)
+            (nombre, fecha, organizador, activo, req_firma, req_documento, req_salud, req_audio, deslinde_version)
         )
         conn.commit()
         evento_id = cur.lastrowid
@@ -1576,6 +1581,7 @@ def actualizar_evento(
     activo: int,
     req_firma: int,
     req_documento: int,
+    req_salud: int,
     req_audio: int,
     deslinde_version: str
 ) -> bool:
@@ -1586,10 +1592,10 @@ def actualizar_evento(
         cur.execute(
             """
             UPDATE eventos 
-            SET nombre=?, fecha=?, organizador=?, activo=?, req_firma=?, req_documento=?, req_audio=?, deslinde_version=?
+            SET nombre=?, fecha=?, organizador=?, activo=?, req_firma=?, req_documento=?, req_salud=?, req_audio=?, deslinde_version=?
             WHERE id=?
             """,
-            (nombre, fecha, organizador, activo, req_firma, req_documento, req_audio, deslinde_version, evento_id)
+            (nombre, fecha, organizador, activo, req_firma, req_documento, req_salud, req_audio, deslinde_version, evento_id)
         )
         conn.commit()
         if cur.rowcount > 0:
@@ -2407,6 +2413,7 @@ def admin_evento_nuevo_post(
     activo: Optional[int] = Form(0),
     req_firma: Optional[int] = Form(0),
     req_documento: Optional[int] = Form(0),
+    req_salud: Optional[int] = Form(0),
     req_audio: Optional[int] = Form(0),
     deslinde_version: str = Form(...),
     username: str = Depends(get_current_username)
@@ -2434,6 +2441,7 @@ def admin_evento_nuevo_post(
             activo=activo or 0,
             req_firma=req_firma or 0,
             req_documento=req_documento or 0,
+            req_salud=req_salud or 0,
             req_audio=req_audio or 0,
             deslinde_version=deslinde_version
         )
@@ -2464,6 +2472,7 @@ def admin_evento_editar_post(
     activo: Optional[int] = Form(0),
     req_firma: Optional[int] = Form(0),
     req_documento: Optional[int] = Form(0),
+    req_salud: Optional[int] = Form(0),
     req_audio: Optional[int] = Form(0),
     deslinde_version: str = Form(...),
     username: str = Depends(get_current_username)
@@ -2491,6 +2500,7 @@ def admin_evento_editar_post(
             activo=activo or 0,
             req_firma=req_firma or 0,
             req_documento=req_documento or 0,
+            req_salud=req_salud or 0,
             req_audio=req_audio or 0,
             deslinde_version=deslinde_version
         )
