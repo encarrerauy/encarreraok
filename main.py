@@ -97,7 +97,32 @@ MAX_AUDIO_MB = 5      # Audio: máx 5 MB
 MAX_IMAGE_COMPRESS_THRESHOLD_MB = 2  # Si supera esto, comprimir
 MAX_IMAGE_COMPRESS_TARGET_MB = 1.5   # Objetivo después de compresión
 
-DESLINDE_TEXTO_BASE = """DESLINDE DE RESPONSABILIDAD Y ACEPTACIÓN DE RIESGOS
+# Configuración de versiones de deslinde
+LEGAL_DIR = os.environ.get("ENCARRERAOK_LEGAL_DIR", "legal")
+DESLINDES_CONFIG = {
+    "v1_1": "deslinde_v1_1_ligero.txt",
+    "v2_0": "deslinde_v2_0_legal_fuerte.txt",
+}
+DEFAULT_DESLINDE_VERSION = "v1_1"
+
+def cargar_deslinde(version: str = DEFAULT_DESLINDE_VERSION) -> str:
+    """
+    Carga el texto del deslinde desde archivo según la versión.
+    Retorna el texto base con placeholders.
+    """
+    filename = DESLINDES_CONFIG.get(version)
+    if not filename:
+        app_logger.error(f"Versión de deslinde desconocida: {version}, usando default")
+        filename = DESLINDES_CONFIG[DEFAULT_DESLINDE_VERSION]
+    
+    path = os.path.join(LEGAL_DIR, filename)
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            return f.read()
+    except Exception as e:
+        app_logger.error(f"Error leyendo archivo de deslinde {path}: {e}")
+        # Fallback de emergencia si no se puede leer el archivo
+        return """DESLINDE DE RESPONSABILIDAD Y ACEPTACIÓN DE RIESGOS
 
 Declaro que participo en el evento deportivo {{NOMBRE_EVENTO}}, organizado por {{ORGANIZADOR}}, de manera voluntaria y bajo mi exclusiva responsabilidad.
 
@@ -1093,6 +1118,12 @@ def init_db() -> None:
             cur.execute("ALTER TABLE eventos ADD COLUMN req_audio INTEGER DEFAULT 0 CHECK (req_audio IN (0,1))")
         except sqlite3.OperationalError:
             pass
+            
+        # Migración: deslinde_version en eventos (v1_1 default)
+        try:
+            cur.execute("ALTER TABLE eventos ADD COLUMN deslinde_version TEXT DEFAULT 'v1_1'")
+        except sqlite3.OperationalError:
+            pass
 
         # Tabla de aceptaciones
         cur.execute(
@@ -1537,32 +1568,13 @@ def on_startup() -> None:
         if count == 0:
             cur.execute(
                 """
-                INSERT INTO eventos (id, nombre, fecha, organizador, activo)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO eventos (id, nombre, fecha, organizador, activo, deslinde_version)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (1, "Carrera 10K Montevideo", date.today().isoformat(), "Encarrera", 1),
+                (1, "Carrera 10K Montevideo", date.today().isoformat(), "Encarrera", 1, "v1_1"),
             )
             conn.commit()
-        
-        # Asegura que cada evento tenga exactamente un deslinde activo
-        cur.execute("SELECT id, nombre, organizador FROM eventos")
-        eventos = [dict(r) for r in cur.fetchall()]
-        
-        for evt in eventos:
-            eid = evt["id"]
-            cur.execute("SELECT COUNT(*) AS c FROM deslindes WHERE evento_id = ? AND activo = 1", (eid,))
-            has_active = cur.fetchone()["c"] > 0
-            if not has_active:
-                # Reemplazar placeholders en texto base
-                texto_final = DESLINDE_TEXTO_BASE.replace("{{NOMBRE_EVENTO}}", evt["nombre"])\
-                                                 .replace("{{ORGANIZADOR}}", evt["organizador"])
-                
-                insertar_deslinde(
-                    evento_id=eid,
-                    texto=texto_final,
-                    activo=1,
-                    creado_por="sistema"
-                )
+            
     finally:
         conn.close()
 
@@ -1576,7 +1588,7 @@ def mostrar_formulario(evento_id: int, request: Request) -> HTMLResponse:
     Muestra el formulario de aceptación para un evento.
     - Si el evento no existe, retorna 404.
     - Si el evento está inactivo, muestra el formulario deshabilitado.
-    - Requiere un deslinde activo para el evento.
+    - Carga deslinde desde archivo según versión configurada.
     """
     evento = get_evento(evento_id)
     if not evento:
@@ -1586,14 +1598,20 @@ def mostrar_formulario(evento_id: int, request: Request) -> HTMLResponse:
     evento["req_firma"] = bool(evento.get("req_firma", 0))
     evento["req_documento"] = bool(evento.get("req_documento", 0))
     evento["req_audio"] = bool(evento.get("req_audio", 0))
-    deslinde = get_deslinde_activo(evento_id)
-    if not deslinde:
-        raise HTTPException(status_code=400, detail="No existe deslinde activo para el evento")
+
+    # Obtener texto del deslinde según versión
+    version = evento.get("deslinde_version") or DEFAULT_DESLINDE_VERSION
+    texto_base = cargar_deslinde(version)
+    
+    # Reemplazar placeholders dinámicos
+    texto_final = texto_base.replace("{{NOMBRE_EVENTO}}", evento["nombre"])\
+                            .replace("{{ORGANIZADOR}}", evento["organizador"])
+
     template = templates_env.get_template("evento_form.html")
     html = template.render(
         evento=evento, 
         request=request, 
-        deslinde_texto=deslinde["texto"],
+        deslinde_texto=texto_final,
         MAX_IMAGE_DOC_MB=MAX_IMAGE_DOC_MB,
         MAX_FIRMA_MB=MAX_FIRMA_MB,
         MAX_AUDIO_MB=MAX_AUDIO_MB,
@@ -1692,11 +1710,15 @@ def procesar_aceptacion(
         fecha_hora = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
         # Normalización de documento: quitar puntos, guiones y espacios; a mayúsculas
         documento_norm = re.sub(r"[.\-\s]", "", documento).upper()
-        # Obtiene deslinde activo y su hash
-        deslinde = get_deslinde_activo(evento_id)
-        if not deslinde:
-            raise HTTPException(status_code=400, detail="No existe deslinde activo para el evento")
-
+        
+        # Obtiene texto y hash del deslinde que se está aceptando
+        version = evento.get("deslinde_version") or DEFAULT_DESLINDE_VERSION
+        texto_base = cargar_deslinde(version)
+        texto_final = texto_base.replace("{{NOMBRE_EVENTO}}", evento["nombre"])\
+                                .replace("{{ORGANIZADOR}}", evento["organizador"])
+        
+        deslinde_hash_sha256 = calcular_hash_sha256(texto_final)
+        
         # Procesamiento de firma
         firma_path_final = None
         if firma_base64:
@@ -1888,7 +1910,7 @@ def procesar_aceptacion(
             fecha_hora=fecha_hora,
             ip=ip,
             user_agent=user_agent,
-            deslinde_hash_sha256=deslinde["hash_sha256"],
+            deslinde_hash_sha256=deslinde_hash_sha256,
             firma_path=firma_path_final,
             doc_frente_path=doc_frente_path_final,
             doc_dorso_path=doc_dorso_path_final,
