@@ -647,7 +647,10 @@ templates_env = Environment(
                                 // Validación al enviar
                                 var form = document.getElementById('acceptForm');
                                 form.addEventListener('submit', function(e) {
-                                    if (!hiddenInput.value) {
+                                    var exentoCheckbox = document.getElementById('audio_exento');
+                                    var isExento = exentoCheckbox && exentoCheckbox.checked;
+                                    
+                                    if (!hiddenInput.value && !isExento) {
                                         alert("El audio de aceptación es obligatorio. Por favor grabe su aceptación.");
                                         e.preventDefault();
                                     }
