@@ -846,6 +846,7 @@ templates_env = Environment(
                     .btn { padding: 8px 16px; border-radius: 4px; text-decoration: none; border: 1px solid transparent; cursor: pointer; }
                     .btn-primary { background: #0d6efd; color: white; border-color: #0d6efd; }
                     .btn-success { background: #198754; color: white; border-color: #198754; }
+                    .btn-danger { background: #dc3545; color: white; border-color: #dc3545; }
                     .btn-outline { background: white; color: #6c757d; border-color: #6c757d; }
                     select { padding: 8px; border-radius: 4px; border: 1px solid #ced4da; min-width: 200px; }
                 </style>
@@ -870,6 +871,9 @@ templates_env = Environment(
                     {% if filtro_evento_id %}
                         <a href="/admin/exportar_zip/{{ filtro_evento_id }}" class="btn btn-success">
                             📦 Descargar ZIP del Evento
+                        </a>
+                        <a href="/admin/gestion_eliminacion/{{ filtro_evento_id }}" class="btn btn-danger">
+                            🗑️ Gestionar Eliminación
                         </a>
                         <a href="/admin/aceptaciones" class="btn btn-outline">Limpiar filtro</a>
                     {% endif %}
@@ -915,6 +919,73 @@ templates_env = Environment(
                     {% endfor %}
                     </tbody>
                 </table>
+            </body>
+            </html>
+            """,
+            "admin_gestion_eliminacion.html": """
+            <!doctype html>
+            <html lang="es">
+            <head>
+                <meta charset="utf-8" />
+                <meta name="viewport" content="width=device-width, initial-scale=1" />
+                <title>Gestión de Eliminación - Admin</title>
+                <style>
+                    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 24px; background: #fdfdfd; }
+                    .container { max-width: 800px; margin: 0 auto; }
+                    .card { border: 1px solid #ddd; padding: 24px; border-radius: 8px; margin-bottom: 24px; background: white; }
+                    .danger-zone { border: 1px solid #f5c6cb; background: #f8d7da; color: #721c24; }
+                    .btn { padding: 10px 20px; border-radius: 4px; text-decoration: none; border: 1px solid transparent; cursor: pointer; display: inline-block; }
+                    .btn-danger { background: #dc3545; color: white; border-color: #dc3545; }
+                    .btn-warning { background: #ffc107; color: #000; border-color: #ffc107; }
+                    .btn-secondary { background: #6c757d; color: white; border-color: #6c757d; }
+                    h1 { margin-top: 0; }
+                    h2 { font-size: 1.2em; margin-top: 0; }
+                    .stats { display: flex; gap: 20px; margin: 20px 0; font-size: 0.9em; color: #555; }
+                    .stat-item { background: #eee; padding: 10px; border-radius: 4px; }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <a href="/admin/aceptaciones?evento_id={{ evento.id }}" class="btn btn-secondary" style="margin-bottom: 20px;">← Volver</a>
+                    
+                    <h1>Gestión de Eliminación: {{ evento.nombre }}</h1>
+                    
+                    <div class="stats">
+                        <div class="stat-item">📅 Fecha: {{ evento.fecha }}</div>
+                        <div class="stat-item">👥 Total Registros: {{ total_aceptaciones }}</div>
+                    </div>
+
+                    <!-- OPCIÓN 1: Limpieza por Fecha -->
+                    <div class="card">
+                        <h2>🧹 Opción 1: Limpieza por Antigüedad</h2>
+                        <p>Elimina registros y archivos anteriores a una fecha y hora específica. Útil para cumplir políticas de retención sin borrar el evento.</p>
+                        
+                        <form action="/admin/eliminar_evento" method="post" onsubmit="return confirm('¿Estás seguro de eliminar los registros seleccionados? Esta acción NO se puede deshacer.');">
+                            <input type="hidden" name="evento_id" value="{{ evento.id }}">
+                            <input type="hidden" name="tipo_eliminacion" value="parcial">
+                            
+                            <div style="margin: 15px 0;">
+                                <label for="fecha_corte">Eliminar registros anteriores a:</label>
+                                <input type="datetime-local" id="fecha_corte" name="fecha_corte" required style="padding: 8px;">
+                            </div>
+                            
+                            <button type="submit" class="btn btn-warning">Limpiar registros antiguos</button>
+                        </form>
+                    </div>
+
+                    <!-- OPCIÓN 2: Borrado Total -->
+                    <div class="card danger-zone">
+                        <h2>⚠️ Opción 2: Zona de Peligro</h2>
+                        <p>Elimina el evento completamente y <strong>TODOS</strong> sus registros y archivos asociados. No quedará rastro.</p>
+                        
+                        <form action="/admin/eliminar_evento" method="post" onsubmit="return confirm('¡ATENCIÓN! Vas a eliminar EL EVENTO COMPLETO y TODOS sus datos. ¿Estás absolutamente seguro?');">
+                            <input type="hidden" name="evento_id" value="{{ evento.id }}">
+                            <input type="hidden" name="tipo_eliminacion" value="total">
+                            
+                            <button type="submit" class="btn btn-danger">ELIMINAR EVENTO COMPLETO</button>
+                        </form>
+                    </div>
+                </div>
             </body>
             </html>
             """,
@@ -1195,6 +1266,58 @@ def listar_aceptaciones(evento_id: Optional[int] = None) -> List[Dict[str, Any]]
         cur.execute(query, tuple(params))
         rows = cur.fetchall()
         return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def borrar_evidencias_fisicas(aceptaciones: List[Dict[str, Any]]):
+    """Borra archivos físicos de una lista de aceptaciones."""
+    count = 0
+    for a in aceptaciones:
+        paths = [
+            a.get('firma_path'),
+            a.get('doc_frente_path'),
+            a.get('doc_dorso_path'),
+            a.get('audio_path')
+        ]
+        for p in paths:
+            if p and os.path.exists(p):
+                try:
+                    os.remove(p)
+                    count += 1
+                except OSError as e:
+                    app_logger.error(f"Error borrando archivo {p}: {e}")
+    return count
+
+
+def eliminar_aceptaciones_por_ids(ids: List[int]) -> int:
+    """Elimina registros de aceptaciones por lista de IDs."""
+    if not ids:
+        return 0
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        # SQLite no soporta arrays nativos, usamos placeholders dinámicos
+        placeholders = ','.join('?' * len(ids))
+        sql = f"DELETE FROM aceptaciones WHERE id IN ({placeholders})"
+        cur.execute(sql, ids)
+        conn.commit()
+        return cur.rowcount
+    finally:
+        conn.close()
+
+
+def eliminar_evento_completo(evento_id: int) -> bool:
+    """Elimina un evento y todas sus referencias."""
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        # Primero aceptaciones (redundante si ya se borraron, pero seguro)
+        cur.execute("DELETE FROM aceptaciones WHERE evento_id = ?", (evento_id,))
+        # Luego el evento
+        cur.execute("DELETE FROM eventos WHERE id = ?", (evento_id,))
+        conn.commit()
+        return True
     finally:
         conn.close()
 
@@ -1920,6 +2043,115 @@ def admin_exportar_zip(
     }
     
     return StreamingResponse(zip_buffer, media_type="application/zip", headers=headers)
+
+
+@app.get("/admin/gestion_eliminacion/{evento_id}", response_class=HTMLResponse)
+def admin_gestion_eliminacion(
+    evento_id: int,
+    username: str = Depends(get_current_username)
+) -> HTMLResponse:
+    """Pantalla de confirmación y opciones para eliminar datos."""
+    evento = get_evento(evento_id)
+    if not evento:
+        raise HTTPException(status_code=404, detail="Evento no encontrado")
+        
+    aceptaciones = listar_aceptaciones(evento_id=evento_id)
+    
+    template = templates_env.get_template("admin_gestion_eliminacion.html")
+    html = template.render(
+        evento=evento,
+        total_aceptaciones=len(aceptaciones)
+    )
+    return HTMLResponse(content=html)
+
+
+@app.post("/admin/eliminar_evento", response_class=HTMLResponse)
+def admin_procesar_eliminacion(
+    evento_id: int = Form(...),
+    tipo_eliminacion: str = Form(...), # 'parcial' o 'total'
+    fecha_corte: Optional[str] = Form(None), # Para parcial
+    username: str = Depends(get_current_username)
+) -> HTMLResponse:
+    """Procesa la eliminación solicitada."""
+    evento = get_evento(evento_id)
+    if not evento:
+        raise HTTPException(status_code=404, detail="Evento no encontrado")
+
+    msg = ""
+    
+    if tipo_eliminacion == "total":
+        # 1. Obtener todas las aceptaciones para borrar archivos
+        aceptaciones = listar_aceptaciones(evento_id=evento_id)
+        
+        # 2. Borrar archivos físicos
+        archivos_borrados = borrar_evidencias_fisicas(aceptaciones)
+        
+        # 3. Borrar evento y registros (Cascade manual)
+        eliminar_evento_completo(evento_id)
+        
+        msg = f"Evento '{evento['nombre']}' eliminado completamente. {len(aceptaciones)} registros y {archivos_borrados} archivos eliminados."
+        
+        # Redirigir a lista general sin filtro
+        return HTMLResponse(
+            content=f"""
+            <script>
+                alert("{msg}");
+                window.location.href = "/admin/aceptaciones";
+            </script>
+            """
+        )
+
+    elif tipo_eliminacion == "parcial":
+        if not fecha_corte:
+            raise HTTPException(status_code=400, detail="Fecha de corte requerida para eliminación parcial")
+            
+        # fecha_corte viene como 'YYYY-MM-DDTHH:MM'
+        # Buscar aceptaciones anteriores a esa fecha
+        # La fecha en BD es 'YYYY-MM-DDTHH:MM:SSZ' o similar ISO
+        
+        aceptaciones = listar_aceptaciones(evento_id=evento_id)
+        a_borrar = []
+        ids_borrar = []
+        
+        for a in aceptaciones:
+            # Comparación de strings ISO funciona bien si el formato es consistente
+            # fecha_corte (input) no tiene Z, fecha_bd sí puede tenerla.
+            # Normalizamos a string simple para comparar
+            fecha_bd = a['fecha_hora'][:16] # YYYY-MM-DDTHH:MM
+            if fecha_bd < fecha_corte:
+                a_borrar.append(a)
+                ids_borrar.append(a['id'])
+        
+        if not a_borrar:
+            return HTMLResponse(
+                content=f"""
+                <script>
+                    alert("No se encontraron registros anteriores a {fecha_corte}.");
+                    window.history.back();
+                </script>
+                """
+            )
+            
+        # Borrar archivos
+        archivos_borrados = borrar_evidencias_fisicas(a_borrar)
+        
+        # Borrar registros BD
+        regs_borrados = eliminar_aceptaciones_por_ids(ids_borrar)
+        
+        msg = f"Limpieza completada. {regs_borrados} registros y {archivos_borrados} archivos eliminados anteriores a {fecha_corte}."
+        
+        # Redirigir a la gestión del mismo evento
+        return HTMLResponse(
+            content=f"""
+            <script>
+                alert("{msg}");
+                window.location.href = "/admin/gestion_eliminacion/{evento_id}";
+            </script>
+            """
+        )
+    
+    else:
+        raise HTTPException(status_code=400, detail="Tipo de eliminación inválido")
 
 
 @app.get("/admin/aceptaciones/{aceptacion_id}", response_class=HTMLResponse)

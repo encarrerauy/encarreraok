@@ -294,6 +294,8 @@ Admin con autenticación (Basic Auth implementada ✅)
 
 Export legal (PDF / ZIP) (Exportación ZIP implementada ✅)
 
+Gestión de Datos (Eliminación Parcial/Total implementada ✅)
+
 Auditoría avanzada
 
 11. Reglas para asistentes IA (Cursor / otros)
