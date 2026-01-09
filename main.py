@@ -224,7 +224,7 @@ templates_env = Environment(
                                 <h3>Documento de Identidad</h3>
                                 <div class="file-input-group">
                                     <label for="doc_frente">Frente del documento</label>
-                                    <input type="file" id="doc_frente" name="doc_frente" accept="image/*" capture="environment" required>
+                                    <input type="file" id="doc_frente" name="doc_frente" accept="image/*" required>
                                     <div class="file-hint">Foto clara del frente (cámara o archivo). Máx. {{ MAX_IMAGE_DOC_MB }} MB</div>
                                     <div id="doc_frente_feedback" class="file-feedback" style="display:none;"></div>
                                     <div id="doc_frente_mobile_tip" class="file-feedback info" style="display:none;">
@@ -233,7 +233,7 @@ templates_env = Environment(
                                 </div>
                                 <div class="file-input-group">
                                     <label for="doc_dorso">Dorso del documento</label>
-                                    <input type="file" id="doc_dorso" name="doc_dorso" accept="image/*" capture="environment" required>
+                                    <input type="file" id="doc_dorso" name="doc_dorso" accept="image/*" required>
                                     <div class="file-hint">Foto clara del dorso (cámara o archivo). Máx. {{ MAX_IMAGE_DOC_MB }} MB</div>
                                     <div id="doc_dorso_feedback" class="file-feedback" style="display:none;"></div>
                                     <div id="doc_dorso_mobile_tip" class="file-feedback info" style="display:none;">
@@ -336,8 +336,17 @@ templates_env = Environment(
                             <div class="doc-container">
                                 <h3>Documento de salud (requerido)</h3>
                                 <div class="file-input-group">
+                                    <label for="salud_doc_tipo">Tipo de documento de salud</label>
+                                    <select id="salud_doc_tipo" name="salud_doc_tipo" required style="width: 100%; padding: 8px; margin-bottom: 10px; border: 1px solid #ccc; border-radius: 4px;">
+                                        <option value="" disabled selected>Seleccione una opción</option>
+                                        <option value="carne_salud">Carné de salud</option>
+                                        <option value="certificado_aptitud">Certificado de aptitud física</option>
+                                        <option value="otro">Otro documento equivalente</option>
+                                    </select>
+                                </div>
+                                <div class="file-input-group">
                                     <label for="salud_doc">Documento de salud</label>
-                                    <input type="file" id="salud_doc" name="salud_doc" accept="image/*" capture="environment" required>
+                                    <input type="file" id="salud_doc" name="salud_doc" accept="image/*" required>
                                     <div class="file-hint">Puede subir o fotografiar su carné de salud, certificado de aptitud física u otro documento que acredite su estado de salud. Máx. {{ MAX_IMAGE_DOC_MB }} MB</div>
                                     <div id="salud_doc_feedback" class="file-feedback" style="display:none;"></div>
                                     <div id="salud_doc_mobile_tip" class="file-feedback info" style="display:none;">
@@ -419,6 +428,12 @@ templates_env = Environment(
                             <div class="audio-container">
                                 <h3>Audio de aceptación (requerido)</h3>
                                 <p>Por favor, grábese leyendo el siguiente texto:</p>
+                                <div style="margin-bottom: 15px;">
+                                    <label style="display: flex; align-items: center; gap: 8px; font-weight: bold; background: #fff3cd; padding: 10px; border-radius: 4px; border: 1px solid #ffeeba;">
+                                        <input type="checkbox" id="audio_exento" name="audio_exento" value="1" onchange="toggleAudioRequirement()">
+                                        No puedo grabar audio por imposibilidad física
+                                    </label>
+                                </div>
                                 <div class="audio-text">
                                     "Yo, <span id="nombre-script">[Nombre]</span>, declaro haber leído y aceptado el deslinde de responsabilidad."
                                 </div>
@@ -646,6 +661,13 @@ templates_env = Environment(
                                 <label>Firma digital (requerida)</label>
                                 <canvas id="signature-pad" class="signature-pad"></canvas>
                                 <button type="button" class="btn btn-clear" id="clear-signature">Limpiar firma</button>
+                                
+                                <div style="margin-top: 15px;">
+                                    <label style="display: flex; align-items: center; gap: 8px; font-weight: bold; background: #fff3cd; padding: 10px; border-radius: 4px; border: 1px solid #ffeeba;">
+                                        <input type="checkbox" id="firma_asistida" name="firma_asistida" value="1">
+                                        La firma se realiza de forma asistida
+                                    </label>
+                                </div>
                                 <div class="file-hint">Máx. {{ MAX_FIRMA_MB }} MB</div>
                                 <div id="firma_feedback" class="file-feedback" style="display:none;"></div>
                                 <div id="firma_mobile_tip" class="file-feedback info" style="display:none;">
@@ -844,6 +866,20 @@ templates_env = Environment(
                         <span class="value">{{ aceptacion.deslinde_hash_sha256 }}</span>
                     </div>
 
+                    <h2>Accesibilidad y Salud</h2>
+                    <div class="field">
+                        <span class="label">Tipo Documento Salud:</span>
+                        <span class="value">{{ aceptacion.salud_doc_tipo or 'No especificado' }}</span>
+                    </div>
+                    <div class="field">
+                        <span class="label">Exención de Audio (Accesibilidad):</span>
+                        <span class="value">{{ 'SÍ' if aceptacion.audio_exento else 'NO' }}</span>
+                    </div>
+                    <div class="field">
+                        <span class="label">Firma Asistida (Accesibilidad):</span>
+                        <span class="value">{{ 'SÍ' if aceptacion.firma_asistida else 'NO' }}</span>
+                    </div>
+
                     <h2>Evidencias</h2>
                     
                     <div class="field">
@@ -1018,6 +1054,9 @@ templates_env = Environment(
                             <th>Fecha/Hora</th>
                             <th>IP</th>
                             <th>User Agent</th>
+                            <th>Tipo Salud</th>
+                            <th>Audio Exento</th>
+                            <th>Firma Asistida</th>
                             <th>Firma Path</th>
                             <th>Doc Frente Path</th>
                             <th>Doc Dorso Path</th>
@@ -1037,6 +1076,9 @@ templates_env = Environment(
                             <td>{{ a.fecha_hora }}</td>
                             <td>{{ a.ip }}</td>
                             <td>{{ a.user_agent }}</td>
+                            <td>{{ a.salud_doc_tipo or '-' }}</td>
+                            <td>{{ 'SÍ' if a.audio_exento else '-' }}</td>
+                            <td>{{ 'SÍ' if a.firma_asistida else '-' }}</td>
                             <td style="font-size: 0.85em; max-width: 200px; overflow: hidden; text-overflow: ellipsis;">{{ a.firma_path or '-' }}</td>
                             <td style="font-size: 0.85em; max-width: 200px; overflow: hidden; text-overflow: ellipsis;">{{ a.doc_frente_path or '-' }}</td>
                             <td style="font-size: 0.85em; max-width: 200px; overflow: hidden; text-overflow: ellipsis;">{{ a.doc_dorso_path or '-' }}</td>
@@ -1446,6 +1488,21 @@ def init_db() -> None:
             cur.execute("ALTER TABLE aceptaciones ADD COLUMN salud_doc_path TEXT")
         except sqlite3.OperationalError:
             pass
+
+        try:
+            cur.execute("ALTER TABLE aceptaciones ADD COLUMN salud_doc_tipo TEXT")
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            cur.execute("ALTER TABLE aceptaciones ADD COLUMN audio_exento INTEGER DEFAULT 0 CHECK (audio_exento IN (0,1))")
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            cur.execute("ALTER TABLE aceptaciones ADD COLUMN firma_asistida INTEGER DEFAULT 0 CHECK (firma_asistida IN (0,1))")
+        except sqlite3.OperationalError:
+            pass
             
         # Tabla de deslindes versionados
         cur.execute(
@@ -1511,6 +1568,9 @@ def insertar_aceptacion(
     doc_dorso_path: Optional[str] = None,
     audio_path: Optional[str] = None,
     salud_doc_path: Optional[str] = None,
+    salud_doc_tipo: Optional[str] = None,
+    audio_exento: int = 0,
+    firma_asistida: int = 0,
 ) -> int:
     """Inserta una aceptación y devuelve el ID creado."""
     conn = get_connection()
@@ -1519,10 +1579,10 @@ def insertar_aceptacion(
         cur.execute(
             """
             INSERT INTO aceptaciones (
-                evento_id, nombre_participante, documento, fecha_hora, ip, user_agent, deslinde_hash_sha256, firma_path, doc_frente_path, doc_dorso_path, audio_path, salud_doc_path
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                evento_id, nombre_participante, documento, fecha_hora, ip, user_agent, deslinde_hash_sha256, firma_path, doc_frente_path, doc_dorso_path, audio_path, salud_doc_path, salud_doc_tipo, audio_exento, firma_asistida
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (evento_id, nombre_participante, documento, fecha_hora, ip, user_agent, deslinde_hash_sha256, firma_path, doc_frente_path, doc_dorso_path, audio_path, salud_doc_path),
+            (evento_id, nombre_participante, documento, fecha_hora, ip, user_agent, deslinde_hash_sha256, firma_path, doc_frente_path, doc_dorso_path, audio_path, salud_doc_path, salud_doc_tipo, audio_exento, firma_asistida),
         )
         conn.commit()
         return cur.lastrowid
@@ -1628,7 +1688,10 @@ def listar_aceptaciones(evento_id: Optional[int] = None) -> List[Dict[str, Any]]
                 a.doc_frente_path,
                 a.doc_dorso_path,
                 a.audio_path,
-                a.salud_doc_path
+                a.salud_doc_path,
+                a.salud_doc_tipo,
+                a.audio_exento,
+                a.firma_asistida
             FROM aceptaciones a
             JOIN eventos e ON e.id = a.evento_id
         """
@@ -1721,7 +1784,10 @@ def get_aceptacion_detalle(aceptacion_id: int) -> Optional[Dict[str, Any]]:
                 a.doc_frente_path,
                 a.doc_dorso_path,
                 a.audio_path,
-                a.salud_doc_path
+                a.salud_doc_path,
+                a.salud_doc_tipo,
+                a.audio_exento,
+                a.firma_asistida
             FROM aceptaciones a
             JOIN eventos e ON e.id = a.evento_id
             WHERE a.id = ?
@@ -1981,6 +2047,9 @@ def procesar_aceptacion(
     doc_dorso: Optional[UploadFile] = File(None),
     salud_doc: Optional[UploadFile] = File(None),
     audio_base64: Optional[str] = Form(None),
+    salud_doc_tipo: Optional[str] = Form(None),
+    audio_exento: Optional[int] = Form(0),
+    firma_asistida: Optional[int] = Form(0),
 ) -> HTMLResponse:
     """
     Procesa el formulario de aceptación:
@@ -2053,6 +2122,8 @@ def procesar_aceptacion(
         if req_salud:
             if not salud_doc or not salud_doc.filename:
                 raise HTTPException(status_code=400, detail="El documento de salud es obligatorio")
+            if not salud_doc_tipo:
+                raise HTTPException(status_code=400, detail="Debe seleccionar el tipo de documento de salud")
             try:
                 salud_doc.file.seek(0, os.SEEK_END)
                 salud_size = salud_doc.file.tell()
@@ -2070,7 +2141,7 @@ def procesar_aceptacion(
 
         # Validación de audio
         req_audio = bool(evento.get("req_audio", 0))
-        if req_audio and not audio_base64:
+        if req_audio and audio_exento != 1 and not audio_base64:
             raise HTTPException(status_code=400, detail="El audio de aceptación es obligatorio")
 
         # Metadatos del cliente
@@ -2335,6 +2406,9 @@ def procesar_aceptacion(
             doc_dorso_path=doc_dorso_path_final,
             audio_path=audio_path_final,
             salud_doc_path=salud_doc_path_final,
+            salud_doc_tipo=salud_doc_tipo,
+            audio_exento=audio_exento or 0,
+            firma_asistida=firma_asistida or 0,
         )
         
         # Log final con todos los datos

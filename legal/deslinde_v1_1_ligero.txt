@@ -4,7 +4,9 @@ Declaro que participo en el evento deportivo {{NOMBRE_EVENTO}}, organizado por {
 
 Reconozco que la práctica de actividades deportivas implica riesgos inherentes, tales como caídas, golpes, lesiones musculares, traumatismos, descompensaciones físicas, accidentes derivados del entorno y condiciones climáticas adversas, entre otros.
 
-Declaro encontrarme en condiciones físicas y de salud adecuadas para participar en este evento, y asumir plena responsabilidad por mi estado físico antes, durante y después del mismo.
+Declaro encontrarme en condiciones físicas y de salud adecuadas para participar en este evento y asumir plena responsabilidad por mi estado físico antes, durante y después del mismo.
+
+En caso de haber cargado un documento de salud en este sistema, declaro que dicho documento es auténtico, vigente y corresponde a mi persona, y reconozco que su aceptación por parte del organizador no implica validación médica ni certificación de aptitud física.
 
 Eximo de toda responsabilidad civil, penal y administrativa al organizador, auspiciantes, colaboradores, personal médico, autoridades y cualquier otra persona vinculada a la organización del evento, por cualquier daño, lesión o perjuicio que pudiera sufrir como consecuencia de mi participación.
 
