@@ -1793,7 +1793,8 @@ def borrar_evidencias_fisicas(aceptaciones: List[Dict[str, Any]]):
             a.get('firma_path'),
             a.get('doc_frente_path'),
             a.get('doc_dorso_path'),
-            a.get('audio_path')
+            a.get('audio_path'),
+            a.get('salud_doc_path')
         ]
         for p in paths:
             if p and os.path.exists(p):
@@ -2902,6 +2903,14 @@ def admin_descargar_pdf_aceptacion(
     texto_final = texto_base.replace("{{NOMBRE_EVENTO}}", evento["nombre"])\
                             .replace("{{ORGANIZADOR}}", evento["organizador"])
 
+    # AJUSTE 3: Verificación de consistencia de hash
+    hash_calculado = calcular_hash_sha256(texto_final)
+    hash_bd = aceptacion['deslinde_hash_sha256']
+    consistencia = "OK" if hash_calculado == hash_bd else "NO COINCIDE"
+
+    if consistencia != "OK":
+        app_logger.warning(f"Inconsistencia de hash detectada - AceptacionID: {aceptacion_id}, EventoID: {evento['id']}. BD: {hash_bd}, Calc: {hash_calculado}")
+
     # Generar PDF
     pdf = SimplePDFGenerator()
     
@@ -2943,7 +2952,9 @@ def admin_descargar_pdf_aceptacion(
     pdf.set_font_size(12)
     pdf.add_text("AUDITORÍA TÉCNICA")
     pdf.set_font_size(10)
-    pdf.add_text(f"Hash SHA256 Deslinde: {aceptacion['deslinde_hash_sha256']}")
+    pdf.add_text(f"Hash SHA256 Deslinde (BD): {hash_bd}")
+    pdf.add_text(f"Hash SHA256 Calculado: {hash_calculado}")
+    pdf.add_text(f"Consistencia del hash: {consistencia}")
     pdf.add_text(f"Fecha Aceptación (UTC): {aceptacion['fecha_hora']}")
     pdf.add_text(f"Dirección IP: {aceptacion['ip']}")
     pdf.add_text(f"User-Agent: {aceptacion['user_agent']}")
@@ -2991,6 +3002,12 @@ def admin_exportar_zip(
     aceptaciones = listar_aceptaciones(evento_id=evento_id)
     if not aceptaciones:
         raise HTTPException(status_code=404, detail="No hay aceptaciones para este evento")
+
+    # Pre-calcular texto del deslinde para el evento
+    version = evento.get("deslinde_version") or DEFAULT_DESLINDE_VERSION
+    texto_base = cargar_deslinde(version)
+    texto_final_template = texto_base.replace("{{NOMBRE_EVENTO}}", evento["nombre"])\
+                                     .replace("{{ORGANIZADOR}}", evento["organizador"])
 
     # 2. Crear buffer en memoria para el ZIP
     zip_buffer = io.BytesIO()
@@ -3042,6 +3059,100 @@ def admin_exportar_zip(
                         app_logger.error(f"Error agregando archivo {path_bd} al ZIP: {e}")
                 return None, None
 
+            # AJUSTE 1: Generar PDF legal en memoria e incluirlo
+            try:
+                # Verificar consistencia de hash
+                hash_calculado = calcular_hash_sha256(texto_final_template)
+                hash_bd = a['deslinde_hash_sha256']
+                consistencia = "OK" if hash_calculado == hash_bd else "NO COINCIDE"
+                
+                if consistencia != "OK":
+                     app_logger.warning(f"Inconsistencia de hash en exportación ZIP - AceptacionID: {a['id']}. BD: {hash_bd}, Calc: {hash_calculado}")
+
+                # Generar PDF
+                pdf = SimplePDFGenerator()
+                
+                # Encabezado
+                pdf.set_font_size(14)
+                pdf.add_text("ACEPTACIÓN DE DESLINDE DE RESPONSABILIDAD")
+                pdf.set_font_size(10)
+                pdf.add_text(f"ID Aceptación: {a['id']}")
+                pdf.add_text(f"Fecha y hora de generación del documento (UTC): {datetime.utcnow().replace(microsecond=0).isoformat()}Z")
+                pdf.add_text("\n")
+                
+                # Evento
+                pdf.set_font_size(12)
+                pdf.add_text("EVENTO")
+                pdf.set_font_size(10)
+                pdf.add_text(f"Nombre: {evento['nombre']}")
+                pdf.add_text(f"Fecha: {evento['fecha']}")
+                pdf.add_text(f"Organizador: {evento['organizador']}")
+                pdf.add_text("\n")
+                
+                # Participante
+                pdf.set_font_size(12)
+                pdf.add_text("PARTICIPANTE")
+                pdf.set_font_size(10)
+                pdf.add_text(f"Nombre: {a['nombre_participante']}")
+                pdf.add_text(f"Documento: {a['documento']}")
+                pdf.add_text("\n")
+                
+                # Texto Legal
+                pdf.set_font_size(12)
+                pdf.add_text("TEXTO DEL DESLINDE ACEPTADO")
+                pdf.add_text("-" * 60)
+                pdf.set_font_size(9)
+                pdf.add_text(texto_final_template)
+                pdf.add_text("-" * 60)
+                pdf.add_text("\n")
+                
+                # Auditoría
+                pdf.set_font_size(12)
+                pdf.add_text("AUDITORÍA TÉCNICA")
+                pdf.set_font_size(10)
+                pdf.add_text(f"Hash SHA256 Deslinde (BD): {hash_bd}")
+                pdf.add_text(f"Hash SHA256 Calculado: {hash_calculado}")
+                pdf.add_text(f"Consistencia del hash: {consistencia}")
+                pdf.add_text(f"Fecha Aceptación (UTC): {a['fecha_hora']}")
+                pdf.add_text(f"Dirección IP: {a['ip']}")
+                pdf.add_text(f"User-Agent: {a['user_agent']}")
+                
+                # Documento de salud
+                tiene_salud = "Sí" if a.get('salud_doc_path') else "No"
+                pdf.add_text(f"Documento de salud aportado: {tiene_salud}")
+                if a.get('salud_doc_path'):
+                    pdf.add_text(f"Tipo de documento: {a.get('salud_doc_tipo', 'No especificado')}")
+                
+                flags = []
+                if a.get('audio_exento'): flags.append("AUDIO_EXENTO")
+                if a.get('firma_asistida'): flags.append("FIRMA_ASISTIDA")
+                if flags:
+                    pdf.add_text(f"Flags: {', '.join(flags)}")
+                
+                pdf.add_text("\n")
+                pdf.set_font_size(8)
+                pdf.add_text("Documento generado automáticamente por el sistema EncarreraOK.")
+                
+                pdf_bytes = pdf.get_pdf_bytes()
+                
+                # Escribir PDF al ZIP
+                pdf_arcname = f"{folder_name}/aceptacion.pdf"
+                zip_file.writestr(pdf_arcname, pdf_bytes)
+                
+                # Calcular hash del PDF (bytes)
+                pdf_hash = hashlib.sha256(pdf_bytes).hexdigest()
+                
+                # Agregar al manifest (AJUSTE 2)
+                aceptacion_entry["evidencias"]["pdf"] = {
+                    "path": pdf_arcname,
+                    "sha256": pdf_hash
+                }
+
+            except Exception as e:
+                app_logger.error(f"Error crítico generando PDF para aceptación {a['id']}: {e}")
+                # Abortar exportación
+                raise HTTPException(status_code=500, detail=f"Error generando PDF legal para aceptación {a['id']}. Exportación abortada.")
+
             # Agregar evidencias y poblar manifest
             
             # Firma
@@ -3065,7 +3176,7 @@ def admin_exportar_zip(
                 ext = os.path.splitext(a['salud_doc_path'])[1] or ".jpg"
                 h, p = agregar_archivo(a['salud_doc_path'], f"salud_doc{ext}")
                 if h:
-                    aceptacion_entry["documento_salud"] = {
+                    aceptacion_entry["evidencias"]["salud_doc"] = {
                         "tipo": a.get("salud_doc_tipo", "desconocido"),
                         "path": p,
                         "sha256": h
@@ -3083,8 +3194,48 @@ def admin_exportar_zip(
         manifest_str = json.dumps(manifest_data, indent=2, ensure_ascii=False)
         zip_file.writestr("manifest.json", manifest_str)
 
+        # AJUSTE 3: Agregar README.txt
+        readme_content = f"""ENCARRERAOK – EXPORTACIÓN LEGAL DEL EVENTO
+
+Este archivo ZIP contiene las aceptaciones legales del evento:
+- Nombre del evento: {evento['nombre']}
+- Fecha del evento: {evento['fecha']}
+- Organizador: {evento['organizador']}
+
+Estructura del ZIP:
+
+/manifest.json
+/README.txt
+/<aceptacion_id>_<nombre>/
+  aceptacion.pdf
+  firma.(ext)
+  documento_identidad_frente.(ext)
+  documento_identidad_dorso.(ext)
+  documento_salud.(ext)
+  audio.(ext)
+
+Descripción de archivos:
+
+- aceptacion.pdf:
+  Documento legal probatorio generado por el sistema EncarreraOK.
+  Contiene el texto completo del deslinde aceptado, datos del participante,
+  auditoría técnica (hash, IP, fecha, flags de accesibilidad).
+
+- manifest.json:
+  Archivo de control que lista todas las aceptaciones exportadas y los hashes
+  SHA256 de cada evidencia incluida en el ZIP.
+
+Integridad:
+
+La integridad de esta exportación puede verificarse recalculando los hashes
+SHA256 de cada archivo y comparándolos con los valores indicados en manifest.json.
+
+Este material tiene fines legales y probatorios.
+"""
+        zip_file.writestr("README.txt", readme_content)
+
     # 4. Preparar respuesta
-    app_logger.info(f"Export ZIP generado para evento {evento_id}. Aceptaciones: {len(aceptaciones)}. Incluye manifest.")
+    app_logger.info(f"Export ZIP generado para evento {evento_id}. Aceptaciones: {len(aceptaciones)}. Incluye manifest, PDF legal y README.")
     zip_buffer.seek(0)
     
     # Nombre del archivo: Evento_Fecha.zip
