@@ -880,6 +880,8 @@ templates_env = Environment(
                 <h1>Aceptaciones</h1>
                 
                 <div class="toolbar">
+                    <a href="/admin/eventos" class="btn btn-outline">📅 Gestionar Eventos</a>
+                    
                     <form action="/admin/aceptaciones" method="get" style="display: flex; gap: 10px; align-items: center;">
                         <label for="evento_id">Filtrar por evento:</label>
                         <select name="evento_id" id="evento_id" onchange="this.form.submit()">
