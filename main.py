@@ -1041,15 +1041,37 @@ templates_env = Environment(
                 <title>Deslinde aceptado</title>
                 <style>
                     body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 24px; }
-                    .card { max-width: 640px; margin: 0 auto; padding: 24px; border: 1px solid #ddd; border-radius: 8px; }
+                    .card { max-width: 640px; margin: 0 auto; padding: 24px; border: 1px solid #ddd; border-radius: 8px; text-align: center; }
                     .muted { color: #666; }
+                    .btn-download {
+                        display: inline-block;
+                        background-color: #0d6efd;
+                        color: white;
+                        padding: 12px 24px;
+                        text-decoration: none;
+                        border-radius: 6px;
+                        font-weight: bold;
+                        margin: 20px 0 10px 0;
+                        transition: background-color 0.2s;
+                    }
+                    .btn-download:hover { background-color: #0b5ed7; }
+                    .info-text { font-size: 0.9em; color: #555; margin-bottom: 20px; }
                 </style>
             </head>
             <body>
                 <div class="card">
                     <h1>Deslinde aceptado</h1>
-                    <p>Gracias {{ nombre_participante }}. Tu aceptación quedó registrada para el evento <strong>{{ evento.nombre }}</strong>.</p>
-                    <p class="muted">Registro ID: {{ aceptacion_id }} — {{ fecha_hora }}</p>
+                    <p>Gracias <strong>{{ nombre_participante }}</strong>.</p>
+                    <p>Tu aceptación quedó registrada para el evento <strong>{{ evento.nombre }}</strong>.</p>
+                    
+                    {% if pdf_token %}
+                    <div>
+                        <a href="/aceptacion/pdf/{{ pdf_token }}" class="btn-download">📄 Descargar comprobante legal (PDF)</a>
+                        <p class="info-text">Guarde este comprobante. Contiene el deslinde que usted aceptó.</p>
+                    </div>
+                    {% endif %}
+
+                    <p class="muted" style="margin-top: 24px; font-size: 0.8em;">Registro ID: {{ aceptacion_id }} — {{ fecha_hora }}</p>
                 </div>
             </body>
             </html>
@@ -1579,6 +1601,12 @@ def init_db() -> None:
             cur.execute("ALTER TABLE aceptaciones ADD COLUMN firma_asistida INTEGER DEFAULT 0 CHECK (firma_asistida IN (0,1))")
         except sqlite3.OperationalError:
             pass
+
+        # Migración: pdf_token en aceptaciones
+        try:
+            cur.execute("ALTER TABLE aceptaciones ADD COLUMN pdf_token TEXT")
+        except sqlite3.OperationalError:
+            pass
             
         # Tabla de deslindes versionados
         cur.execute(
@@ -1647,6 +1675,7 @@ def insertar_aceptacion(
     salud_doc_tipo: Optional[str] = None,
     audio_exento: int = 0,
     firma_asistida: int = 0,
+    pdf_token: Optional[str] = None,
 ) -> int:
     """Inserta una aceptación y devuelve el ID creado."""
     conn = get_connection()
@@ -1655,10 +1684,10 @@ def insertar_aceptacion(
         cur.execute(
             """
             INSERT INTO aceptaciones (
-                evento_id, nombre_participante, documento, fecha_hora, ip, user_agent, deslinde_hash_sha256, firma_path, doc_frente_path, doc_dorso_path, audio_path, salud_doc_path, salud_doc_tipo, audio_exento, firma_asistida
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                evento_id, nombre_participante, documento, fecha_hora, ip, user_agent, deslinde_hash_sha256, firma_path, doc_frente_path, doc_dorso_path, audio_path, salud_doc_path, salud_doc_tipo, audio_exento, firma_asistida, pdf_token
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (evento_id, nombre_participante, documento, fecha_hora, ip, user_agent, deslinde_hash_sha256, firma_path, doc_frente_path, doc_dorso_path, audio_path, salud_doc_path, salud_doc_tipo, audio_exento, firma_asistida),
+            (evento_id, nombre_participante, documento, fecha_hora, ip, user_agent, deslinde_hash_sha256, firma_path, doc_frente_path, doc_dorso_path, audio_path, salud_doc_path, salud_doc_tipo, audio_exento, firma_asistida, pdf_token),
         )
         conn.commit()
         return cur.lastrowid
@@ -1884,6 +1913,50 @@ def get_aceptacion_detalle(aceptacion_id: int) -> Optional[Dict[str, Any]]:
         data['audio_exists'] = os.path.exists(data['audio_path']) if data['audio_path'] else False
         data['salud_doc_exists'] = os.path.exists(data['salud_doc_path']) if data['salud_doc_path'] else False
         
+        return data
+    finally:
+        conn.close()
+
+
+def get_aceptacion_por_token(pdf_token: str) -> Optional[Dict[str, Any]]:
+    """Obtiene aceptación por token público."""
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT
+                a.id,
+                a.evento_id,
+                e.nombre AS evento_nombre,
+                e.fecha AS evento_fecha,
+                e.organizador AS evento_organizador,
+                a.nombre_participante,
+                a.documento,
+                a.fecha_hora,
+                a.ip,
+                a.user_agent,
+                a.deslinde_hash_sha256,
+                a.firma_path,
+                a.doc_frente_path,
+                a.doc_dorso_path,
+                a.audio_path,
+                a.salud_doc_path,
+                a.salud_doc_tipo,
+                a.audio_exento,
+                a.firma_asistida,
+                a.pdf_token
+            FROM aceptaciones a
+            JOIN eventos e ON e.id = a.evento_id
+            WHERE a.pdf_token = ?
+            """,
+            (pdf_token,)
+        )
+        row = cur.fetchone()
+        if not row:
+            return None
+        
+        data = dict(row)
         return data
     finally:
         conn.close()
@@ -2663,6 +2736,9 @@ def procesar_aceptacion(
                 if req_audio and audio_exento != 1:
                     raise HTTPException(status_code=500, detail="Error al guardar el audio")
                 app_logger.error(f"[{request_id}] Error no bloqueante al guardar audio: {traceback.format_exc()}")
+        
+        # Generar token público para descarga de PDF
+        pdf_token = secrets.token_urlsafe(32)
 
         aceptacion_id = insertar_aceptacion(
             evento_id=evento_id,
@@ -2680,12 +2756,13 @@ def procesar_aceptacion(
             salud_doc_tipo=salud_doc_tipo,
             audio_exento=audio_exento or 0,
             firma_asistida=firma_asistida or 0,
+            pdf_token=pdf_token,
         )
         
         # Log final con todos los datos
         app_logger.info(
             f"[{request_id}] Aceptación guardada exitosamente - "
-            f"aceptacion_id={aceptacion_id}, evento_id={evento_id}, "
+            f"aceptacion_id={aceptacion_id}, evento_id={evento_id}, pdf_token={pdf_token[:8]}..., "
             f"firma_path={firma_path_final}, doc_frente_path={doc_frente_path_final}, "
             f"doc_dorso_path={doc_dorso_path_final}, audio_path={audio_path_final}, salud_doc_path={salud_doc_path_final}"
         )
@@ -2696,6 +2773,7 @@ def procesar_aceptacion(
             evento=evento,
             aceptacion_id=aceptacion_id,
             fecha_hora=fecha_hora,
+            pdf_token=pdf_token,
         )
         return HTMLResponse(content=html)
     except HTTPException:
@@ -2882,34 +2960,21 @@ def admin_aceptaciones(
     return HTMLResponse(content=html)
 
 
-@app.get("/admin/aceptaciones/{aceptacion_id}/pdf")
-def admin_descargar_pdf_aceptacion(
-    aceptacion_id: int,
-    username: str = Depends(get_current_username)
-):
-    """Genera PDF legal de la aceptación."""
-    # Obtener datos completos
-    aceptacion = get_aceptacion_detalle(aceptacion_id)
-    if not aceptacion:
-        raise HTTPException(status_code=404, detail="Aceptación no encontrada")
-        
-    evento = get_evento(aceptacion["evento_id"])
-    if not evento:
-        raise HTTPException(status_code=404, detail="Evento asociado no encontrado")
-
+def _generar_bytes_pdf(aceptacion: Dict[str, Any], evento: Dict[str, Any]) -> bytes:
+    """Helper para generar el PDF legal de una aceptación."""
     # Reconstruir texto deslinde
     version = evento.get("deslinde_version") or DEFAULT_DESLINDE_VERSION
     texto_base = cargar_deslinde(version)
     texto_final = texto_base.replace("{{NOMBRE_EVENTO}}", evento["nombre"])\
                             .replace("{{ORGANIZADOR}}", evento["organizador"])
 
-    # AJUSTE 3: Verificación de consistencia de hash
+    # Verificación de consistencia de hash
     hash_calculado = calcular_hash_sha256(texto_final)
     hash_bd = aceptacion['deslinde_hash_sha256']
     consistencia = "OK" if hash_calculado == hash_bd else "NO COINCIDE"
 
     if consistencia != "OK":
-        app_logger.warning(f"Inconsistencia de hash detectada - AceptacionID: {aceptacion_id}, EventoID: {evento['id']}. BD: {hash_bd}, Calc: {hash_calculado}")
+        app_logger.warning(f"Inconsistencia de hash detectada - AceptacionID: {aceptacion['id']}, EventoID: {evento['id']}. BD: {hash_bd}, Calc: {hash_calculado}")
 
     # Generar PDF
     pdf = SimplePDFGenerator()
@@ -2975,7 +3040,50 @@ def admin_descargar_pdf_aceptacion(
     pdf.set_font_size(8)
     pdf.add_text("Documento generado automáticamente por el sistema EncarreraOK.")
     
-    pdf_bytes = pdf.get_pdf_bytes()
+    return pdf.get_pdf_bytes()
+
+
+@app.get("/aceptacion/pdf/{pdf_token}")
+def public_descargar_pdf_aceptacion(pdf_token: str):
+    """Endpoint público para descargar PDF de aceptación."""
+    # Buscar aceptación por token
+    aceptacion = get_aceptacion_por_token(pdf_token)
+    if not aceptacion:
+        raise HTTPException(status_code=404, detail="Aceptación no encontrada o token inválido")
+        
+    evento = get_evento(aceptacion["evento_id"])
+    if not evento:
+        raise HTTPException(status_code=404, detail="Evento asociado no encontrado")
+
+    # Generar PDF
+    pdf_bytes = _generar_bytes_pdf(aceptacion, evento)
+    
+    app_logger.info(f"PDF público descargado para aceptacion_id={aceptacion['id']} via token")
+    
+    filename = "aceptacion.pdf"
+    headers = {
+        "Content-Disposition": f'attachment; filename="{filename}"'
+    }
+    return StreamingResponse(io.BytesIO(pdf_bytes), media_type="application/pdf", headers=headers)
+
+
+@app.get("/admin/aceptaciones/{aceptacion_id}/pdf")
+def admin_descargar_pdf_aceptacion(
+    aceptacion_id: int,
+    username: str = Depends(get_current_username)
+):
+    """Genera PDF legal de la aceptación."""
+    # Obtener datos completos
+    aceptacion = get_aceptacion_detalle(aceptacion_id)
+    if not aceptacion:
+        raise HTTPException(status_code=404, detail="Aceptación no encontrada")
+        
+    evento = get_evento(aceptacion["evento_id"])
+    if not evento:
+        raise HTTPException(status_code=404, detail="Evento asociado no encontrado")
+
+    # Generar PDF
+    pdf_bytes = _generar_bytes_pdf(aceptacion, evento)
     
     app_logger.info(f"PDF generado para aceptacion_id={aceptacion_id} evento_id={evento['id']}")
     
@@ -2984,6 +3092,7 @@ def admin_descargar_pdf_aceptacion(
         "Content-Disposition": f'attachment; filename="{filename}"'
     }
     return StreamingResponse(io.BytesIO(pdf_bytes), media_type="application/pdf", headers=headers)
+
 
 
 @app.get("/admin/exportar_zip/{evento_id}")
