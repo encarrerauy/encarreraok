@@ -2141,8 +2141,11 @@ def procesar_aceptacion(
 
         # Validación de audio
         req_audio = bool(evento.get("req_audio", 0))
-        if req_audio and audio_exento != 1 and not audio_base64:
-            raise HTTPException(status_code=400, detail="El audio de aceptación es obligatorio")
+        if req_audio:
+            if audio_exento == 1:
+                app_logger.info(f"[{request_id}] Audio exento por imposibilidad física")
+            elif not audio_base64:
+                raise HTTPException(status_code=400, detail="El audio de aceptación es obligatorio")
 
         # Metadatos del cliente
         ip = request.client.host if request.client else "0.0.0.0"
@@ -2390,8 +2393,9 @@ def procesar_aceptacion(
             except HTTPException:
                 raise
             except Exception:
-                if req_audio:
+                if req_audio and audio_exento != 1:
                     raise HTTPException(status_code=500, detail="Error al guardar el audio")
+                app_logger.error(f"[{request_id}] Error no bloqueante al guardar audio: {traceback.format_exc()}")
 
         aceptacion_id = insertar_aceptacion(
             evento_id=evento_id,

@@ -326,3 +326,25 @@ sudo systemctl status encarreraok
 
 **Última actualización:** Enero 2026
 
+---
+
+## 🚀 SECUENCIA RÁPIDA DE COMANDOS (COPIAR Y PEGAR EN CONSOLA DO)
+
+Copia y pega este bloque completo en tu terminal para actualizar todo en un solo paso (o línea por línea):
+
+```bash
+# 1. Ir a la carpeta del proyecto
+cd /var/www/encarreraok
+
+# 2. Actualizar desde GitHub
+git pull origin main
+
+# 3. Verificar que los archivos se actualizaron (comprueba la fecha/hora)
+ls -l main.py
+
+# 4. Reiniciar el servidor (reset)
+sudo systemctl restart encarreraok
+
+# 5. Verificar que el servicio está corriendo correctamente (debe decir "active (running)")
+sudo systemctl status encarreraok
+```
