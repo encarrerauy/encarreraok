@@ -53,21 +53,28 @@ except ImportError:
 # ------------------------------------------------------------------------------
 # Configuración de logging
 # ------------------------------------------------------------------------------
-LOG_DIR = "/var/log/encarreraok"
-LOG_FILE = os.path.join(LOG_DIR, "app.log")
 
 def setup_logging() -> None:
     """Configura logging a archivo con rotación."""
+    # Intentar primero en /var/log, fallback a directorio local
+    target_dir = "/var/log/encarreraok"
+    
     try:
-        os.makedirs(LOG_DIR, exist_ok=True)
+        os.makedirs(target_dir, exist_ok=True)
+        # Verificar escritura intentando crear un archivo temporal
+        test_file = os.path.join(target_dir, ".test_write")
+        with open(test_file, 'w') as f:
+            f.write('ok')
+        os.remove(test_file)
     except Exception:
-        # Fallback: usar directorio actual si no se puede crear /var/log
-        LOG_DIR = os.path.dirname(os.path.abspath(__file__))
-        LOG_FILE = os.path.join(LOG_DIR, "app.log")
+        # Fallback: usar directorio actual si no se puede escribir en /var/log
+        target_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    final_log_file = os.path.join(target_dir, "app.log")
     
     # Handler con rotación (10MB, 5 backups)
     handler = RotatingFileHandler(
-        LOG_FILE,
+        final_log_file,
         maxBytes=10 * 1024 * 1024,
         backupCount=5,
         encoding='utf-8'
@@ -1789,12 +1796,13 @@ def on_startup() -> None:
         cur.execute("SELECT COUNT(*) AS c FROM eventos")
         count = cur.fetchone()["c"]
         if count == 0:
+            # Insertar sin forzar ID para evitar colisiones en seeds repetidos
             cur.execute(
                 """
-                INSERT INTO eventos (id, nombre, fecha, organizador, activo, deslinde_version)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO eventos (nombre, fecha, organizador, activo, deslinde_version)
+                VALUES (?, ?, ?, ?, ?)
                 """,
-                (1, "Carrera 10K Montevideo", date.today().isoformat(), "Encarrera", 1, "v1_1"),
+                ("Carrera 10K Montevideo", date.today().isoformat(), "Encarrera", 1, "v1_1"),
             )
             conn.commit()
             
