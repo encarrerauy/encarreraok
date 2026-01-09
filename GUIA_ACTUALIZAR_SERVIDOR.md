@@ -339,8 +339,9 @@ cd /var/www/encarreraok
 # 2. Actualizar desde GitHub
 git pull origin main
 
-# 3. Verificar que los archivos se actualizaron (comprueba la fecha/hora)
+# 3. Verificar que los archivos se actualizaron (comprueba la fecha/hora y el último mensaje de commit)
 ls -l main.py
+git log -1 --format="%h - %s (%cd)"
 
 # 4. Reiniciar el servidor (reset)
 sudo systemctl restart encarreraok
