@@ -37,6 +37,7 @@ import base64
 import uuid
 import shutil
 import zipfile
+import json
 from typing import Optional, List, Dict, Any
 import io
 import logging
@@ -1892,6 +1893,16 @@ def calcular_hash_sha256(texto: str) -> str:
     return hashlib.sha256(texto.encode("utf-8")).hexdigest()
 
 
+def calcular_hash_archivo(filepath: str) -> str:
+    """Calcula SHA256 de un archivo en disco."""
+    sha256_hash = hashlib.sha256()
+    with open(filepath, "rb") as f:
+        # Leer en chunks para eficiencia
+        for byte_block in iter(lambda: f.read(4096), b""):
+            sha256_hash.update(byte_block)
+    return sha256_hash.hexdigest()
+
+
 def comprimir_imagen(file_path: str, max_size_mb: float = MAX_IMAGE_COMPRESS_TARGET_MB) -> Optional[str]:
     """
     Comprime una imagen si es posible usando PIL.
@@ -2009,6 +2020,186 @@ def insertar_deslinde(
         return cur.lastrowid
     finally:
         conn.close()
+
+
+
+# ------------------------------------------------------------------------------
+# Generador PDF minimalista (sin dependencias externas)
+# ------------------------------------------------------------------------------
+class SimplePDFGenerator:
+    """
+    Generador de PDF 1.4 básico usando solo Python standard library.
+    Soporta texto plano, paginación automática y codificación Latin-1.
+    """
+    def __init__(self):
+        self.buffer = io.BytesIO()
+        self.pages_content = []
+        self.current_content = []
+        self.obj_offsets = []
+        self.obj_count = 0
+        
+        # Configuración página Letter (612x792 pt)
+        self.page_width = 612
+        self.page_height = 792
+        self.margin_left = 50
+        self.margin_top = 50
+        self.y = self.page_height - self.margin_top
+        
+        # Configuración fuente
+        self.font_size = 10
+        self.line_height = 12
+        
+        # Inicializar primera página
+        self._init_page_state()
+    
+    def _init_page_state(self):
+        self.current_content.append(f"BT /F1 {self.font_size} Tf\n".encode('latin-1'))
+
+    def _add_page(self):
+        if self.current_content:
+            self.current_content.append(b"ET\n")
+            self.pages_content.append(b"".join(self.current_content))
+        self.current_content = []
+        self.y = self.page_height - self.margin_top
+        self._init_page_state()
+
+    def set_font_size(self, size: int):
+        self.font_size = size
+        self.line_height = int(size * 1.2)
+        # Update font in current stream if active
+        if self.current_content:
+             self.current_content.append(f"/F1 {self.font_size} Tf\n".encode('latin-1'))
+
+    def add_text(self, text: str):
+        """Agrega texto manejando saltos de línea y paginación."""
+        # Sanitizar texto para PDF (escape de paréntesis y backslash)
+        # Reemplazar caracteres no latin-1 con ?
+        text = text.encode('latin-1', 'replace').decode('latin-1')
+        
+        # Estimación simple de ancho de caracteres (Courier/Helvetica avg ~0.5 em)
+        # Usamos 0.5 * font_size como ancho promedio de caracter
+        char_width = self.font_size * 0.5
+        max_chars_per_line = int((self.page_width - 2 * self.margin_left) / char_width)
+        
+        lines = text.split('\n')
+        for line in lines:
+            while len(line) > max_chars_per_line:
+                # Buscar último espacio
+                split_idx = line.rfind(' ', 0, max_chars_per_line)
+                if split_idx == -1:
+                    split_idx = max_chars_per_line
+                
+                chunk = line[:split_idx]
+                self._write_line(chunk)
+                line = line[split_idx:].lstrip()
+            self._write_line(line)
+
+    def _write_line(self, text: str):
+        if self.y < self.margin_top:
+            self._add_page()
+            
+        clean_text = text.replace('\\', '\\\\').replace('(', '\\(').replace(')', '\\)')
+        # Posicionar texto: 1 0 0 1 x y Tm
+        # Usaremos coordenadas absolutas para cada línea para control total
+        cmd = f"1 0 0 1 {self.margin_left} {self.y} Tm ({clean_text}) Tj\n"
+        self.current_content.append(cmd.encode('latin-1'))
+        self.y -= self.line_height
+
+    def get_pdf_bytes(self) -> bytes:
+        # Cerrar última página
+        if self.current_content:
+            self.current_content.append(b"ET\n")
+            self.pages_content.append(b"".join(self.current_content))
+        
+        # Si no hay páginas, crear una vacía
+        if not self.pages_content:
+            self.pages_content.append(b"BT /F1 12 Tf ET\n")
+
+        self.buffer = io.BytesIO()
+        self.obj_offsets = []
+        self.obj_count = 0
+        
+        def write(data: bytes):
+            self.buffer.write(data)
+
+        def start_obj():
+            self.obj_count += 1
+            self.obj_offsets.append(self.buffer.tell())
+            write(f"{self.obj_count} 0 obj\n".encode('latin-1'))
+            return self.obj_count
+
+        def end_obj():
+            write(b"\nendobj\n")
+
+        # Header
+        write(b"%PDF-1.4\n%\xE2\xE3\xCF\xD3\n")
+        
+        # IDs reservados
+        catalog_id = 1
+        pages_root_id = 2
+        font_id = 3
+        
+        # 1. Catalog
+        start_obj() # ID 1
+        write(f"<< /Type /Catalog /Pages {pages_root_id} 0 R >>".encode('latin-1'))
+        end_obj()
+
+        # Recalculamos IDs:
+        # 1: Catalog
+        # 2: Pages
+        # 3: Font
+        # 4..N: Page Objects
+        # N+1..M: Content Streams
+        
+        num_pages = len(self.pages_content)
+        first_page_id = 4
+        first_content_id = first_page_id + num_pages
+        
+        # 2. Pages Root
+        start_obj() # ID 2
+        kids_refs = [f"{first_page_id + i} 0 R" for i in range(num_pages)]
+        write(f"<< /Type /Pages /Kids [{' '.join(kids_refs)}] /Count {num_pages} >>".encode('latin-1'))
+        end_obj()
+        
+        # 3. Font
+        start_obj() # ID 3
+        write(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+        end_obj()
+        
+        # Page Objects y Content Streams
+        for i, content in enumerate(self.pages_content):
+            page_id = first_page_id + i
+            content_id = first_content_id + i
+            
+            # Page Object
+            start_obj() # Should match page_id
+            write(f"<< /Type /Page /Parent {pages_root_id} 0 R /MediaBox [0 0 {self.page_width} {self.page_height}] /Contents {content_id} 0 R /Resources << /Font << /F1 {font_id} 0 R >> >> >>".encode('latin-1'))
+            end_obj()
+            
+        for i, content in enumerate(self.pages_content):
+            # Content Stream Object
+            start_obj() 
+            write(f"<< /Length {len(content)} >>\nstream\n".encode('latin-1'))
+            write(content)
+            write(b"\nendstream")
+            end_obj()
+            
+        # Xref
+        xref_offset = self.buffer.tell()
+        write(b"xref\n")
+        write(f"0 {self.obj_count + 1}\n".encode('latin-1'))
+        write(b"0000000000 65535 f \n")
+        for offset in self.obj_offsets:
+            write(f"{offset:010d} 00000 n \n".encode('latin-1'))
+            
+        # Trailer
+        write(b"trailer\n")
+        write(f"<< /Size {self.obj_count + 1} /Root {catalog_id} 0 R >>\n".encode('latin-1'))
+        write(b"startxref\n")
+        write(f"{xref_offset}\n".encode('latin-1'))
+        write(b"%%EOF\n")
+        
+        return self.buffer.getvalue()
 
 
 # ------------------------------------------------------------------------------
@@ -2690,19 +2881,107 @@ def admin_aceptaciones(
     return HTMLResponse(content=html)
 
 
+@app.get("/admin/aceptaciones/{aceptacion_id}/pdf")
+def admin_descargar_pdf_aceptacion(
+    aceptacion_id: int,
+    username: str = Depends(get_current_username)
+):
+    """Genera PDF legal de la aceptación."""
+    # Obtener datos completos
+    aceptacion = get_aceptacion_detalle(aceptacion_id)
+    if not aceptacion:
+        raise HTTPException(status_code=404, detail="Aceptación no encontrada")
+        
+    evento = get_evento(aceptacion["evento_id"])
+    if not evento:
+        raise HTTPException(status_code=404, detail="Evento asociado no encontrado")
+
+    # Reconstruir texto deslinde
+    version = evento.get("deslinde_version") or DEFAULT_DESLINDE_VERSION
+    texto_base = cargar_deslinde(version)
+    texto_final = texto_base.replace("{{NOMBRE_EVENTO}}", evento["nombre"])\
+                            .replace("{{ORGANIZADOR}}", evento["organizador"])
+
+    # Generar PDF
+    pdf = SimplePDFGenerator()
+    
+    # Encabezado
+    pdf.set_font_size(14)
+    pdf.add_text("ACEPTACIÓN DE DESLINDE DE RESPONSABILIDAD")
+    pdf.set_font_size(10)
+    pdf.add_text(f"ID Aceptación: {aceptacion['id']}")
+    pdf.add_text(f"Fecha y hora de generación del documento (UTC): {datetime.utcnow().replace(microsecond=0).isoformat()}Z")
+    pdf.add_text("\n")
+    
+    # Evento
+    pdf.set_font_size(12)
+    pdf.add_text("EVENTO")
+    pdf.set_font_size(10)
+    pdf.add_text(f"Nombre: {evento['nombre']}")
+    pdf.add_text(f"Fecha: {evento['fecha']}")
+    pdf.add_text(f"Organizador: {evento['organizador']}")
+    pdf.add_text("\n")
+    
+    # Participante
+    pdf.set_font_size(12)
+    pdf.add_text("PARTICIPANTE")
+    pdf.set_font_size(10)
+    pdf.add_text(f"Nombre: {aceptacion['nombre_participante']}")
+    pdf.add_text(f"Documento: {aceptacion['documento']}")
+    pdf.add_text("\n")
+    
+    # Texto Legal
+    pdf.set_font_size(12)
+    pdf.add_text("TEXTO DEL DESLINDE ACEPTADO")
+    pdf.add_text("-" * 60) # Separador visual
+    pdf.set_font_size(9)
+    pdf.add_text(texto_final)
+    pdf.add_text("-" * 60)
+    pdf.add_text("\n")
+    
+    # Auditoría
+    pdf.set_font_size(12)
+    pdf.add_text("AUDITORÍA TÉCNICA")
+    pdf.set_font_size(10)
+    pdf.add_text(f"Hash SHA256 Deslinde: {aceptacion['deslinde_hash_sha256']}")
+    pdf.add_text(f"Fecha Aceptación (UTC): {aceptacion['fecha_hora']}")
+    pdf.add_text(f"Dirección IP: {aceptacion['ip']}")
+    pdf.add_text(f"User-Agent: {aceptacion['user_agent']}")
+    
+    # Documento de salud
+    tiene_salud = "Sí" if aceptacion.get('salud_doc_path') else "No"
+    pdf.add_text(f"Documento de salud aportado: {tiene_salud}")
+    if aceptacion.get('salud_doc_path'):
+        pdf.add_text(f"Tipo de documento: {aceptacion.get('salud_doc_tipo', 'No especificado')}")
+    
+    flags = []
+    if aceptacion.get('audio_exento'): flags.append("AUDIO_EXENTO")
+    if aceptacion.get('firma_asistida'): flags.append("FIRMA_ASISTIDA")
+    if flags:
+        pdf.add_text(f"Flags: {', '.join(flags)}")
+    
+    pdf.add_text("\n")
+    pdf.set_font_size(8)
+    pdf.add_text("Documento generado automáticamente por el sistema EncarreraOK.")
+    
+    pdf_bytes = pdf.get_pdf_bytes()
+    
+    app_logger.info(f"PDF generado para aceptacion_id={aceptacion_id} evento_id={evento['id']}")
+    
+    filename = f"aceptacion_{aceptacion_id}.pdf"
+    headers = {
+        "Content-Disposition": f'attachment; filename="{filename}"'
+    }
+    return StreamingResponse(io.BytesIO(pdf_bytes), media_type="application/pdf", headers=headers)
+
+
 @app.get("/admin/exportar_zip/{evento_id}")
 def admin_exportar_zip(
     evento_id: int,
     username: str = Depends(get_current_username)
 ):
     """
-    Genera y descarga un ZIP con todas las evidencias de un evento.
-    Estructura del ZIP:
-       /ID_NombreParticipante/
-           - firma.png
-           - doc_frente.jpg
-           - doc_dorso.jpg
-           - audio.webm
+    Genera y descarga un ZIP con todas las evidencias de un evento y manifest.json.
     """
     # 1. Obtener datos del evento y aceptaciones
     evento = get_evento(evento_id)
@@ -2716,44 +2995,96 @@ def admin_exportar_zip(
     # 2. Crear buffer en memoria para el ZIP
     zip_buffer = io.BytesIO()
     
+    # Datos para manifest.json
+    manifest_data = {
+        "evento": {
+            "id": evento["id"],
+            "nombre": evento["nombre"],
+            "fecha": evento["fecha"],
+            "organizador": evento["organizador"]
+        },
+        "fecha_exportacion_utc": datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
+        "aceptaciones": []
+    }
+    
     # 3. Escribir ZIP
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
         for a in aceptaciones:
             # Crear nombre de carpeta segura: ID_Nombre (sanitizado)
-            # Normalizar nombre para evitar caracteres inválidos en path
             clean_name = "".join([c for c in a['nombre_participante'] if c.isalnum() or c in (' ', '_', '-')]).strip()
             folder_name = f"{a['id']}_{clean_name}"
             
-            # Helper para agregar archivo si existe
+            # Entrada para manifest
+            aceptacion_entry = {
+                "aceptacion_id": a["id"],
+                "nombre_participante": a["nombre_participante"],
+                "documento": a["documento"],
+                "fecha_hora": a["fecha_hora"],
+                "deslinde_hash_sha256": a["deslinde_hash_sha256"],
+                "flags": {
+                    "audio_exento": 1 if a.get("audio_exento") else 0,
+                    "firma_asistida": 1 if a.get("firma_asistida") else 0
+                },
+                "evidencias": {}
+            }
+            
+            # Helper para agregar archivo si existe y retornar hash
             def agregar_archivo(path_bd, nombre_salida):
                 if path_bd and os.path.exists(path_bd):
                     try:
                         # Calcular path relativo dentro del ZIP
                         arcname = f"{folder_name}/{nombre_salida}"
                         zip_file.write(path_bd, arcname)
+                        # Calcular hash real del archivo
+                        sha256 = calcular_hash_archivo(path_bd)
+                        return sha256, arcname
                     except Exception as e:
                         app_logger.error(f"Error agregando archivo {path_bd} al ZIP: {e}")
+                return None, None
 
-            # Agregar evidencias
-            agregar_archivo(a.get('firma_path'), "firma.png") 
+            # Agregar evidencias y poblar manifest
             
+            # Firma
+            h, p = agregar_archivo(a.get('firma_path'), "firma.png")
+            if h: aceptacion_entry["evidencias"]["firma"] = {"path": p, "sha256": h}
+            
+            # Doc Frente
             if a.get('doc_frente_path'):
                 ext = os.path.splitext(a['doc_frente_path'])[1] or ".jpg"
-                agregar_archivo(a['doc_frente_path'], f"doc_frente{ext}")
+                h, p = agregar_archivo(a['doc_frente_path'], f"doc_frente{ext}")
+                if h: aceptacion_entry["evidencias"]["doc_frente"] = {"path": p, "sha256": h}
                 
+            # Doc Dorso
             if a.get('doc_dorso_path'):
                 ext = os.path.splitext(a['doc_dorso_path'])[1] or ".jpg"
-                agregar_archivo(a['doc_dorso_path'], f"doc_dorso{ext}")
+                h, p = agregar_archivo(a['doc_dorso_path'], f"doc_dorso{ext}")
+                if h: aceptacion_entry["evidencias"]["doc_dorso"] = {"path": p, "sha256": h}
 
+            # Doc Salud
             if a.get('salud_doc_path'):
                 ext = os.path.splitext(a['salud_doc_path'])[1] or ".jpg"
-                agregar_archivo(a['salud_doc_path'], f"salud_doc{ext}")
+                h, p = agregar_archivo(a['salud_doc_path'], f"salud_doc{ext}")
+                if h:
+                    aceptacion_entry["documento_salud"] = {
+                        "tipo": a.get("salud_doc_tipo", "desconocido"),
+                        "path": p,
+                        "sha256": h
+                    }
 
+            # Audio
             if a.get('audio_path'):
                 ext = os.path.splitext(a['audio_path'])[1] or ".webm"
-                agregar_archivo(a['audio_path'], f"audio{ext}")
+                h, p = agregar_archivo(a['audio_path'], f"audio{ext}")
+                if h: aceptacion_entry["evidencias"]["audio"] = {"path": p, "sha256": h}
+
+            manifest_data["aceptaciones"].append(aceptacion_entry)
+            
+        # Agregar manifest.json al root del ZIP
+        manifest_str = json.dumps(manifest_data, indent=2, ensure_ascii=False)
+        zip_file.writestr("manifest.json", manifest_str)
 
     # 4. Preparar respuesta
+    app_logger.info(f"Export ZIP generado para evento {evento_id}. Aceptaciones: {len(aceptaciones)}. Incluye manifest.")
     zip_buffer.seek(0)
     
     # Nombre del archivo: Evento_Fecha.zip
