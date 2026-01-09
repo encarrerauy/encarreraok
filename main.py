@@ -1014,6 +1014,165 @@ templates_env = Environment(
             </body>
             </html>
             """,
+            "admin_eventos_lista.html": """
+            <!doctype html>
+            <html lang="es">
+            <head>
+                <meta charset="utf-8" />
+                <meta name="viewport" content="width=device-width, initial-scale=1" />
+                <title>Admin - Eventos</title>
+                <style>
+                    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 24px; }
+                    table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+                    th, td { border: 1px solid #ddd; padding: 8px; }
+                    th { background: #f2f2f2; text-align: left; }
+                    .toolbar { 
+                        background: #f8f9fa; 
+                        padding: 16px; 
+                        border-radius: 8px; 
+                        margin-bottom: 20px; 
+                        display: flex; 
+                        gap: 16px; 
+                        align-items: center;
+                        justify-content: space-between;
+                    }
+                    .btn { padding: 8px 16px; border-radius: 4px; text-decoration: none; border: 1px solid transparent; cursor: pointer; display: inline-block; background: #007bff; color: white; }
+                    .btn-sm { padding: 4px 8px; font-size: 0.85em; }
+                    .status-active { color: green; font-weight: bold; }
+                    .status-inactive { color: #999; }
+                </style>
+            </head>
+            <body>
+                <div class="toolbar">
+                    <h1>Gestión de Eventos</h1>
+                    <div>
+                        <a href="/admin/aceptaciones" class="btn" style="background: #6c757d;">Ver Aceptaciones</a>
+                        <a href="/admin/eventos/nuevo" class="btn">➕ Crear Nuevo Evento</a>
+                    </div>
+                </div>
+
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Nombre</th>
+                            <th>Fecha</th>
+                            <th>Organizador</th>
+                            <th>Activo</th>
+                            <th>Firma</th>
+                            <th>Doc</th>
+                            <th>Audio</th>
+                            <th>Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for e in eventos %}
+                        <tr class="{{ 'status-inactive' if not e.activo }}">
+                            <td>{{ e.id }}</td>
+                            <td>{{ e.nombre }}</td>
+                            <td>{{ e.fecha|fecha_ddmmaaaa }}</td>
+                            <td>{{ e.organizador }}</td>
+                            <td>
+                                {% if e.activo %}
+                                    <span class="status-active">SÍ</span>
+                                {% else %}
+                                    NO
+                                {% endif %}
+                            </td>
+                            <td>{{ 'SÍ' if e.req_firma else '-' }}</td>
+                            <td>{{ 'SÍ' if e.req_documento else '-' }}</td>
+                            <td>{{ 'SÍ' if e.req_audio else '-' }}</td>
+                            <td>
+                                <a href="/admin/eventos/{{ e.id }}/editar" class="btn btn-sm">✏️ Editar</a>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </body>
+            </html>
+            """,
+            "admin_eventos_form.html": """
+            <!doctype html>
+            <html lang="es">
+            <head>
+                <meta charset="utf-8" />
+                <meta name="viewport" content="width=device-width, initial-scale=1" />
+                <title>{{ 'Editar' if evento else 'Nuevo' }} Evento - Admin</title>
+                <style>
+                    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 24px; max-width: 600px; margin: 0 auto; }
+                    .card { border: 1px solid #ddd; padding: 24px; border-radius: 8px; background: white; margin-top: 24px; }
+                    .form-group { margin-bottom: 16px; }
+                    label { display: block; margin-bottom: 8px; font-weight: bold; }
+                    input[type="text"], input[type="date"], select { width: 100%; padding: 8px; box-sizing: border-box; }
+                    .checkbox-group { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; }
+                    .checkbox-group input { width: auto; }
+                    .checkbox-group label { margin-bottom: 0; font-weight: normal; }
+                    .btn { padding: 10px 20px; border-radius: 4px; text-decoration: none; border: 1px solid transparent; cursor: pointer; display: inline-block; background: #007bff; color: white; }
+                    .btn-cancel { background: #6c757d; margin-right: 10px; }
+                </style>
+            </head>
+            <body>
+                <h1>{{ 'Editar' if evento else 'Crear Nuevo' }} Evento</h1>
+                
+                <div class="card">
+                    <form method="post">
+                        <div class="form-group">
+                            <label for="nombre">Nombre del Evento *</label>
+                            <input type="text" id="nombre" name="nombre" value="{{ evento.nombre if evento else '' }}" required>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="fecha">Fecha (YYYY-MM-DD) *</label>
+                            <input type="date" id="fecha" name="fecha" value="{{ evento.fecha if evento else '' }}" required>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="organizador">Organizador *</label>
+                            <input type="text" id="organizador" name="organizador" value="{{ evento.organizador if evento else '' }}" required>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Configuración de Deslinde</label>
+                            <div class="checkbox-group">
+                                <input type="checkbox" id="req_firma" name="req_firma" value="1" {{ 'checked' if (evento and evento.req_firma) else '' }}>
+                                <label for="req_firma">Requiere Firma Manuscrita</label>
+                            </div>
+                            <div class="checkbox-group">
+                                <input type="checkbox" id="req_documento" name="req_documento" value="1" {{ 'checked' if (evento and evento.req_documento) else '' }}>
+                                <label for="req_documento">Requiere Fotos Documento (Frente/Dorso)</label>
+                            </div>
+                            <div class="checkbox-group">
+                                <input type="checkbox" id="req_audio" name="req_audio" value="1" {{ 'checked' if (evento and evento.req_audio) else '' }}>
+                                <label for="req_audio">Requiere Audio Aceptación</label>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="deslinde_version">Versión de Deslinde *</label>
+                            <select id="deslinde_version" name="deslinde_version" required>
+                                <option value="v1_1" {{ 'selected' if (evento and evento.deslinde_version == 'v1_1') else '' }}>v1_1 (Estándar)</option>
+                                <option value="v2_0" {{ 'selected' if (evento and evento.deslinde_version == 'v2_0') else '' }}>v2_0 (Actualizado)</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group" style="margin-top: 24px; padding-top: 16px; border-top: 1px solid #eee;">
+                            <div class="checkbox-group">
+                                <input type="checkbox" id="activo" name="activo" value="1" {{ 'checked' if (evento and evento.activo) else '' }}>
+                                <label for="activo" style="font-weight: bold;">Evento Activo (Visible para usuarios)</label>
+                            </div>
+                            <small style="color: #666; display: block; margin-top: 4px;">Si se desactiva, no se permitirán nuevas aceptaciones.</small>
+                        </div>
+
+                        <div style="margin-top: 24px;">
+                            <a href="/admin/eventos" class="btn btn-cancel">Cancelar</a>
+                            <button type="submit" class="btn">Guardar Cambios</button>
+                        </div>
+                    </form>
+                </div>
+            </body>
+            </html>
+            """,
         }
     ),
     autoescape=select_autoescape(["html", "xml"]),
@@ -1255,9 +1414,71 @@ def listar_eventos() -> List[Dict[str, Any]]:
     conn = get_connection()
     try:
         cur = conn.cursor()
-        cur.execute("SELECT id, nombre, fecha, organizador, activo FROM eventos ORDER BY id DESC")
+        cur.execute("SELECT id, nombre, fecha, organizador, activo, req_firma, req_documento, req_audio, deslinde_version FROM eventos ORDER BY id DESC")
         rows = cur.fetchall()
         return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def crear_evento(
+    nombre: str,
+    fecha: str,
+    organizador: str,
+    activo: int,
+    req_firma: int,
+    req_documento: int,
+    req_audio: int,
+    deslinde_version: str
+) -> int:
+    """Crea un nuevo evento y devuelve su ID."""
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO eventos (
+                nombre, fecha, organizador, activo, req_firma, req_documento, req_audio, deslinde_version
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (nombre, fecha, organizador, activo, req_firma, req_documento, req_audio, deslinde_version)
+        )
+        conn.commit()
+        evento_id = cur.lastrowid
+        app_logger.info(f"Evento creado: id={evento_id}, nombre={nombre}")
+        return evento_id
+    finally:
+        conn.close()
+
+
+def actualizar_evento(
+    evento_id: int,
+    nombre: str,
+    fecha: str,
+    organizador: str,
+    activo: int,
+    req_firma: int,
+    req_documento: int,
+    req_audio: int,
+    deslinde_version: str
+) -> bool:
+    """Actualiza un evento existente."""
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            UPDATE eventos 
+            SET nombre=?, fecha=?, organizador=?, activo=?, req_firma=?, req_documento=?, req_audio=?, deslinde_version=?
+            WHERE id=?
+            """,
+            (nombre, fecha, organizador, activo, req_firma, req_documento, req_audio, deslinde_version, evento_id)
+        )
+        conn.commit()
+        if cur.rowcount > 0:
+            app_logger.info(f"Evento actualizado: id={evento_id}")
+            return True
+        return False
     finally:
         conn.close()
 
@@ -1966,6 +2187,125 @@ def get_current_username(credentials: HTTPBasicCredentials = Depends(security)):
             headers={"WWW-Authenticate": "Basic"},
         )
     return credentials.username
+
+
+@app.get("/admin/eventos", response_class=HTMLResponse)
+def admin_eventos(username: str = Depends(get_current_username)) -> HTMLResponse:
+    """Listado de eventos para administración."""
+    eventos = listar_eventos()
+    template = templates_env.get_template("admin_eventos_lista.html")
+    html = template.render(eventos=eventos)
+    return HTMLResponse(content=html)
+
+
+@app.get("/admin/eventos/nuevo", response_class=HTMLResponse)
+def admin_evento_nuevo_form(username: str = Depends(get_current_username)) -> HTMLResponse:
+    """Formulario para crear evento."""
+    template = templates_env.get_template("admin_eventos_form.html")
+    html = template.render(evento=None)
+    return HTMLResponse(content=html)
+
+
+@app.post("/admin/eventos/nuevo")
+def admin_evento_nuevo_post(
+    nombre: str = Form(...),
+    fecha: str = Form(...),
+    organizador: str = Form(...),
+    activo: Optional[int] = Form(0),
+    req_firma: Optional[int] = Form(0),
+    req_documento: Optional[int] = Form(0),
+    req_audio: Optional[int] = Form(0),
+    deslinde_version: str = Form(...),
+    username: str = Depends(get_current_username)
+):
+    """Procesa creación de evento."""
+    from fastapi.responses import RedirectResponse
+    try:
+        # Validaciones básicas
+        if not nombre.strip() or not organizador.strip():
+            raise HTTPException(status_code=400, detail="Nombre y organizador son obligatorios")
+        
+        # Validar fecha ISO
+        try:
+            datetime.strptime(fecha, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Formato de fecha inválido (YYYY-MM-DD)")
+            
+        if deslinde_version not in ["v1_1", "v2_0"]:
+             raise HTTPException(status_code=400, detail="Versión de deslinde inválida")
+
+        crear_evento(
+            nombre=nombre.strip(),
+            fecha=fecha,
+            organizador=organizador.strip(),
+            activo=activo or 0,
+            req_firma=req_firma or 0,
+            req_documento=req_documento or 0,
+            req_audio=req_audio or 0,
+            deslinde_version=deslinde_version
+        )
+        return RedirectResponse(url="/admin/eventos", status_code=303)
+    except Exception as e:
+        app_logger.error(f"Error creando evento: {e}")
+        raise HTTPException(status_code=500, detail=f"Error creando evento: {e}")
+
+
+@app.get("/admin/eventos/{evento_id}/editar", response_class=HTMLResponse)
+def admin_evento_editar_form(evento_id: int, username: str = Depends(get_current_username)) -> HTMLResponse:
+    """Formulario para editar evento."""
+    evento = get_evento(evento_id)
+    if not evento:
+        raise HTTPException(status_code=404, detail="Evento no encontrado")
+        
+    template = templates_env.get_template("admin_eventos_form.html")
+    html = template.render(evento=evento)
+    return HTMLResponse(content=html)
+
+
+@app.post("/admin/eventos/{evento_id}/editar")
+def admin_evento_editar_post(
+    evento_id: int,
+    nombre: str = Form(...),
+    fecha: str = Form(...),
+    organizador: str = Form(...),
+    activo: Optional[int] = Form(0),
+    req_firma: Optional[int] = Form(0),
+    req_documento: Optional[int] = Form(0),
+    req_audio: Optional[int] = Form(0),
+    deslinde_version: str = Form(...),
+    username: str = Depends(get_current_username)
+):
+    """Procesa edición de evento."""
+    from fastapi.responses import RedirectResponse
+    try:
+        # Validaciones
+        if not nombre.strip() or not organizador.strip():
+             raise HTTPException(status_code=400, detail="Nombre y organizador son obligatorios")
+             
+        try:
+            datetime.strptime(fecha, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Formato de fecha inválido")
+            
+        if deslinde_version not in ["v1_1", "v2_0"]:
+             raise HTTPException(status_code=400, detail="Versión de deslinde inválida")
+
+        actualizar_evento(
+            evento_id=evento_id,
+            nombre=nombre.strip(),
+            fecha=fecha,
+            organizador=organizador.strip(),
+            activo=activo or 0,
+            req_firma=req_firma or 0,
+            req_documento=req_documento or 0,
+            req_audio=req_audio or 0,
+            deslinde_version=deslinde_version
+        )
+        
+        return RedirectResponse(url="/admin/eventos", status_code=303)
+    except Exception as e:
+        app_logger.error(f"Error editando evento {evento_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error editando evento: {e}")
 
 
 @app.get("/admin/aceptaciones", response_class=HTMLResponse)
