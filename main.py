@@ -243,24 +243,21 @@ templates_env = Environment(
                             </div>
                             <script>
                                 (function() {
-                                    // Detección mobile
                                     function isMobile() {
                                         return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
                                                (window.innerWidth <= 768);
                                     }
-                                    
-                                    // Mostrar tips solo en mobile
+
                                     if (isMobile()) {
-                                        var docFrenteTip = document.getElementById('doc_frente_mobile_tip');
-                                        var docDorsoTip = document.getElementById('doc_dorso_mobile_tip');
-                                        if (docFrenteTip) docFrenteTip.style.display = 'block';
-                                        if (docDorsoTip) docDorsoTip.style.display = 'block';
+                                        var frenteTip = document.getElementById('doc_frente_mobile_tip');
+                                        var dorsoTip = document.getElementById('doc_dorso_mobile_tip');
+                                        if (frenteTip) frenteTip.style.display = 'block';
+                                        if (dorsoTip) dorsoTip.style.display = 'block';
                                     }
-                                    
-                                    // Validación tamaño de imágenes (Frontend)
+
                                     var MAX_IMAGE_BYTES = {{ MAX_IMAGE_DOC_MB }} * 1024 * 1024;
                                     var COMPRESS_THRESHOLD_BYTES = {{ MAX_IMAGE_COMPRESS_THRESHOLD_MB }} * 1024 * 1024;
-                                    
+
                                     function showFeedback(inputId, message, type) {
                                         var feedback = document.getElementById(inputId + '_feedback');
                                         if (feedback) {
@@ -269,14 +266,14 @@ templates_env = Environment(
                                             feedback.style.display = 'block';
                                         }
                                     }
-                                    
+
                                     function hideFeedback(inputId) {
                                         var feedback = document.getElementById(inputId + '_feedback');
                                         if (feedback) {
                                             feedback.style.display = 'none';
                                         }
                                     }
-                                    
+
                                     function validateFile(input, inputId) {
                                         if (input.files && input.files[0]) {
                                             var size = input.files[0].size;
@@ -293,31 +290,28 @@ templates_env = Environment(
                                         return true;
                                     }
                                     
-                                    // Validación previa al submit
                                     var form = document.getElementById('acceptForm');
                                     if (form) {
                                         form.addEventListener('submit', function(e) {
-                                            var hasError = false;
+                                            var frente = document.getElementById('doc_frente');
+                                            var dorso = document.getElementById('doc_dorso');
+                                            var valid = true;
                                             
-                                            // Validar doc_frente
-                                            var docFrente = document.getElementById('doc_frente');
-                                            if (docFrente && docFrente.files && docFrente.files[0]) {
-                                                if (docFrente.files[0].size > MAX_IMAGE_BYTES) {
-                                                    showFeedback('doc_frente', "⚠️ El archivo del frente es demasiado grande. Máximo: {{ MAX_IMAGE_DOC_MB }} MB. Por favor seleccione otro archivo.", "error");
-                                                    hasError = true;
+                                            if (frente && frente.files && frente.files[0]) {
+                                                if (frente.files[0].size > MAX_IMAGE_BYTES) {
+                                                    showFeedback('doc_frente', "⚠️ El frente es demasiado grande. Máximo: {{ MAX_IMAGE_DOC_MB }} MB.", "error");
+                                                    valid = false;
                                                 }
                                             }
                                             
-                                            // Validar doc_dorso
-                                            var docDorso = document.getElementById('doc_dorso');
-                                            if (docDorso && docDorso.files && docDorso.files[0]) {
-                                                if (docDorso.files[0].size > MAX_IMAGE_BYTES) {
-                                                    showFeedback('doc_dorso', "⚠️ El archivo del dorso es demasiado grande. Máximo: {{ MAX_IMAGE_DOC_MB }} MB. Por favor seleccione otro archivo.", "error");
-                                                    hasError = true;
+                                            if (dorso && dorso.files && dorso.files[0]) {
+                                                if (dorso.files[0].size > MAX_IMAGE_BYTES) {
+                                                    showFeedback('doc_dorso', "⚠️ El dorso es demasiado grande. Máximo: {{ MAX_IMAGE_DOC_MB }} MB.", "error");
+                                                    valid = false;
                                                 }
                                             }
-                                            
-                                            if (hasError) {
+
+                                            if (!valid) {
                                                 e.preventDefault();
                                                 alert("Por favor corrija los errores antes de enviar. Algunos archivos exceden el tamaño máximo permitido.");
                                                 return false;
@@ -333,6 +327,89 @@ templates_env = Environment(
                                     }
                                     if (docDorso) {
                                         docDorso.addEventListener('change', function() { validateFile(this, 'doc_dorso'); });
+                                    }
+                                })();
+                            </script>
+                            {% endif %}
+
+                            {% if evento.req_salud %}
+                            <div class="doc-container">
+                                <h3>Documento de salud (requerido)</h3>
+                                <div class="file-input-group">
+                                    <label for="salud_doc">Documento de salud</label>
+                                    <input type="file" id="salud_doc" name="salud_doc" accept="image/*" capture="environment" required>
+                                    <div class="file-hint">Puede subir o fotografiar su carné de salud, certificado de aptitud física u otro documento que acredite su estado de salud. Máx. {{ MAX_IMAGE_DOC_MB }} MB</div>
+                                    <div id="salud_doc_feedback" class="file-feedback" style="display:none;"></div>
+                                    <div id="salud_doc_mobile_tip" class="file-feedback info" style="display:none;">
+                                        📱 <strong>Modo documento:</strong> Use la cámara trasera para mejor calidad. Asegúrese de que el documento esté bien iluminado y completo.
+                                    </div>
+                                </div>
+                            </div>
+                            <script>
+                                (function() {
+                                    function isMobile() {
+                                        return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
+                                               (window.innerWidth <= 768);
+                                    }
+
+                                    if (isMobile()) {
+                                        var saludTip = document.getElementById('salud_doc_mobile_tip');
+                                        if (saludTip) saludTip.style.display = 'block';
+                                    }
+
+                                    var MAX_IMAGE_BYTES = {{ MAX_IMAGE_DOC_MB }} * 1024 * 1024;
+                                    var COMPRESS_THRESHOLD_BYTES = {{ MAX_IMAGE_COMPRESS_THRESHOLD_MB }} * 1024 * 1024;
+
+                                    function showFeedback(inputId, message, type) {
+                                        var feedback = document.getElementById(inputId + '_feedback');
+                                        if (feedback) {
+                                            feedback.textContent = message;
+                                            feedback.className = 'file-feedback ' + type;
+                                            feedback.style.display = 'block';
+                                        }
+                                    }
+
+                                    function hideFeedback(inputId) {
+                                        var feedback = document.getElementById(inputId + '_feedback');
+                                        if (feedback) {
+                                            feedback.style.display = 'none';
+                                        }
+                                    }
+
+                                    function validateFile(input, inputId) {
+                                        if (input.files && input.files[0]) {
+                                            var size = input.files[0].size;
+                                            if (size > MAX_IMAGE_BYTES) {
+                                                showFeedback(inputId, "⚠️ Imagen demasiado grande. Máximo permitido: {{ MAX_IMAGE_DOC_MB }} MB.", "error");
+                                                input.value = "";
+                                                return false;
+                                            } else if (size > COMPRESS_THRESHOLD_BYTES) {
+                                                showFeedback(inputId, "ℹ️ Imagen grande. Se comprimirá automáticamente al enviar.", "info");
+                                            } else {
+                                                hideFeedback(inputId);
+                                            }
+                                        }
+                                        return true;
+                                    }
+
+                                    var form = document.getElementById('acceptForm');
+                                    if (form) {
+                                        form.addEventListener('submit', function(e) {
+                                            var saludDoc = document.getElementById('salud_doc');
+                                            if (saludDoc && saludDoc.files && saludDoc.files[0]) {
+                                                if (saludDoc.files[0].size > MAX_IMAGE_BYTES) {
+                                                    showFeedback('salud_doc', "⚠️ El documento de salud es demasiado grande. Máximo: {{ MAX_IMAGE_DOC_MB }} MB. Por favor seleccione otro archivo.", "error");
+                                                    e.preventDefault();
+                                                    alert("Por favor corrija los errores antes de enviar. Algunos archivos exceden el tamaño máximo permitido.");
+                                                    return false;
+                                                }
+                                            }
+                                        });
+                                    }
+
+                                    var saludDoc = document.getElementById('salud_doc');
+                                    if (saludDoc) {
+                                        saludDoc.addEventListener('change', function() { validateFile(this, 'salud_doc'); });
                                     }
                                 })();
                             </script>
@@ -812,6 +889,20 @@ templates_env = Environment(
                     </div>
 
                     <div class="field">
+                        <span class="label">Documento Salud:</span>
+                        <div class="value">Path: {{ aceptacion.salud_doc_path or 'N/A' }}</div>
+                        <div>Estado: 
+                            {% if aceptacion.salud_doc_path %}
+                                <span class="{{ 'status-ok' if aceptacion.salud_doc_exists else 'status-missing' }}">
+                                    {{ 'ARCHIVO EXISTE' if aceptacion.salud_doc_exists else 'ARCHIVO NO ENCONTRADO' }}
+                                </span>
+                            {% else %}
+                                -
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    <div class="field">
                         <span class="label">Audio:</span>
                         <div class="value">Path: {{ aceptacion.audio_path or 'N/A' }}</div>
                         <div>Estado: 
@@ -931,6 +1022,7 @@ templates_env = Environment(
                             <th>Doc Frente Path</th>
                             <th>Doc Dorso Path</th>
                             <th>Audio Path</th>
+                            <th>Salud Doc Path</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -949,6 +1041,7 @@ templates_env = Environment(
                             <td style="font-size: 0.85em; max-width: 200px; overflow: hidden; text-overflow: ellipsis;">{{ a.doc_frente_path or '-' }}</td>
                             <td style="font-size: 0.85em; max-width: 200px; overflow: hidden; text-overflow: ellipsis;">{{ a.doc_dorso_path or '-' }}</td>
                             <td style="font-size: 0.85em; max-width: 200px; overflow: hidden; text-overflow: ellipsis;">{{ a.audio_path or '-' }}</td>
+                            <td style="font-size: 0.85em; max-width: 200px; overflow: hidden; text-overflow: ellipsis;">{{ a.salud_doc_path or '-' }}</td>
                         </tr>
                     {% endfor %}
                     </tbody>
@@ -1204,6 +1297,7 @@ EVIDENCIAS_DIR = os.path.join(os.path.dirname(DB_PATH), "evidencias")
 FIRMAS_DIR = os.path.join(EVIDENCIAS_DIR, "firmas")
 DOCUMENTOS_DIR = os.path.join(EVIDENCIAS_DIR, "documentos")
 AUDIOS_DIR = os.path.join(EVIDENCIAS_DIR, "audios")
+SALUD_DIR = os.path.join(EVIDENCIAS_DIR, "salud")
 
 
 def ensure_storage() -> None:
@@ -1230,6 +1324,7 @@ def ensure_storage() -> None:
         os.makedirs(FIRMAS_DIR, exist_ok=True)
         os.makedirs(DOCUMENTOS_DIR, exist_ok=True)
         os.makedirs(AUDIOS_DIR, exist_ok=True)
+        os.makedirs(SALUD_DIR, exist_ok=True)
         # Podríamos ajustar permisos de evidencias también
     except Exception:
         # Entorno local dev windows etc
@@ -1264,7 +1359,8 @@ def init_db() -> None:
                 activo INTEGER NOT NULL CHECK (activo IN (0,1)),
                 req_firma INTEGER DEFAULT 0 CHECK (req_firma IN (0,1)),
                 req_documento INTEGER DEFAULT 0 CHECK (req_documento IN (0,1)),
-                req_audio INTEGER DEFAULT 0 CHECK (req_audio IN (0,1))
+                req_audio INTEGER DEFAULT 0 CHECK (req_audio IN (0,1)),
+                req_salud INTEGER DEFAULT 0 CHECK (req_salud IN (0,1))
             )
             """
         )
@@ -1284,6 +1380,11 @@ def init_db() -> None:
         # Migración: req_audio en eventos
         try:
             cur.execute("ALTER TABLE eventos ADD COLUMN req_audio INTEGER DEFAULT 0 CHECK (req_audio IN (0,1))")
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            cur.execute("ALTER TABLE eventos ADD COLUMN req_salud INTEGER DEFAULT 0 CHECK (req_salud IN (0,1))")
         except sqlite3.OperationalError:
             pass
             
@@ -1309,6 +1410,7 @@ def init_db() -> None:
                 doc_frente_path TEXT,
                 doc_dorso_path TEXT,
                 audio_path TEXT,
+                salud_doc_path TEXT,
                 FOREIGN KEY (evento_id) REFERENCES eventos(id)
             )
             """
@@ -1333,6 +1435,11 @@ def init_db() -> None:
         # Migración: audio_path en aceptaciones
         try:
             cur.execute("ALTER TABLE aceptaciones ADD COLUMN audio_path TEXT")
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            cur.execute("ALTER TABLE aceptaciones ADD COLUMN salud_doc_path TEXT")
         except sqlite3.OperationalError:
             pass
             
@@ -1399,6 +1506,7 @@ def insertar_aceptacion(
     doc_frente_path: Optional[str] = None,
     doc_dorso_path: Optional[str] = None,
     audio_path: Optional[str] = None,
+    salud_doc_path: Optional[str] = None,
 ) -> int:
     """Inserta una aceptación y devuelve el ID creado."""
     conn = get_connection()
@@ -1407,10 +1515,10 @@ def insertar_aceptacion(
         cur.execute(
             """
             INSERT INTO aceptaciones (
-                evento_id, nombre_participante, documento, fecha_hora, ip, user_agent, deslinde_hash_sha256, firma_path, doc_frente_path, doc_dorso_path, audio_path
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                evento_id, nombre_participante, documento, fecha_hora, ip, user_agent, deslinde_hash_sha256, firma_path, doc_frente_path, doc_dorso_path, audio_path, salud_doc_path
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (evento_id, nombre_participante, documento, fecha_hora, ip, user_agent, deslinde_hash_sha256, firma_path, doc_frente_path, doc_dorso_path, audio_path),
+            (evento_id, nombre_participante, documento, fecha_hora, ip, user_agent, deslinde_hash_sha256, firma_path, doc_frente_path, doc_dorso_path, audio_path, salud_doc_path),
         )
         conn.commit()
         return cur.lastrowid
@@ -1513,7 +1621,8 @@ def listar_aceptaciones(evento_id: Optional[int] = None) -> List[Dict[str, Any]]
                 a.firma_path,
                 a.doc_frente_path,
                 a.doc_dorso_path,
-                a.audio_path
+                a.audio_path,
+                a.salud_doc_path
             FROM aceptaciones a
             JOIN eventos e ON e.id = a.evento_id
         """
@@ -1605,7 +1714,8 @@ def get_aceptacion_detalle(aceptacion_id: int) -> Optional[Dict[str, Any]]:
                 a.firma_path,
                 a.doc_frente_path,
                 a.doc_dorso_path,
-                a.audio_path
+                a.audio_path,
+                a.salud_doc_path
             FROM aceptaciones a
             JOIN eventos e ON e.id = a.evento_id
             WHERE a.id = ?
@@ -1623,6 +1733,7 @@ def get_aceptacion_detalle(aceptacion_id: int) -> Optional[Dict[str, Any]]:
         data['doc_frente_exists'] = os.path.exists(data['doc_frente_path']) if data['doc_frente_path'] else False
         data['doc_dorso_exists'] = os.path.exists(data['doc_dorso_path']) if data['doc_dorso_path'] else False
         data['audio_exists'] = os.path.exists(data['audio_path']) if data['audio_path'] else False
+        data['salud_doc_exists'] = os.path.exists(data['salud_doc_path']) if data['salud_doc_path'] else False
         
         return data
     finally:
@@ -1829,6 +1940,7 @@ def mostrar_formulario(evento_id: int, request: Request) -> HTMLResponse:
     evento["req_firma"] = bool(evento.get("req_firma", 0))
     evento["req_documento"] = bool(evento.get("req_documento", 0))
     evento["req_audio"] = bool(evento.get("req_audio", 0))
+    evento["req_salud"] = bool(evento.get("req_salud", 0))
 
     # Obtener texto del deslinde según versión
     version = evento.get("deslinde_version") or DEFAULT_DESLINDE_VERSION
@@ -1861,6 +1973,7 @@ def procesar_aceptacion(
     firma_base64: Optional[str] = Form(None),
     doc_frente: Optional[UploadFile] = File(None),
     doc_dorso: Optional[UploadFile] = File(None),
+    salud_doc: Optional[UploadFile] = File(None),
     audio_base64: Optional[str] = Form(None),
 ) -> HTMLResponse:
     """
@@ -1928,6 +2041,25 @@ def procesar_aceptacion(
                 raise
             except Exception:
                 # Si falla la verificación de tamaño, continuamos (validación más estricta después)
+                pass
+
+        req_salud = bool(evento.get("req_salud", 0))
+        if req_salud:
+            if not salud_doc or not salud_doc.filename:
+                raise HTTPException(status_code=400, detail="El documento de salud es obligatorio")
+            try:
+                salud_doc.file.seek(0, os.SEEK_END)
+                salud_size = salud_doc.file.tell()
+                salud_doc.file.seek(0)
+                max_bytes_img = MAX_IMAGE_DOC_MB * 1024 * 1024
+                if salud_size > max_bytes_img:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"El documento de salud no debe superar {MAX_IMAGE_DOC_MB} MB."
+                    )
+            except HTTPException:
+                raise
+            except Exception:
                 pass
 
         # Validación de audio
@@ -2092,6 +2224,56 @@ def procesar_aceptacion(
                         pass
                 raise HTTPException(status_code=500, detail="Error al guardar las imágenes del documento")
 
+        salud_doc_path_final = None
+        if req_salud and salud_doc:
+            try:
+                max_doc_bytes = MAX_IMAGE_DOC_MB * 1024 * 1024
+
+                salud_doc.file.seek(0, os.SEEK_END)
+                salud_size = salud_doc.file.tell()
+                salud_doc.file.seek(0)
+                if salud_size > max_doc_bytes:
+                    app_logger.warning(f"[{request_id}] Doc salud demasiado grande: {salud_size} bytes")
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"El documento de salud es demasiado grande. Máximo permitido: {MAX_IMAGE_DOC_MB} MB."
+                    )
+
+                ext_salud = os.path.splitext(salud_doc.filename)[1]
+                if not ext_salud:
+                    ext_salud = ".jpg"
+                filename_salud = f"{uuid.uuid4()}{ext_salud}"
+                filepath_salud = os.path.join(SALUD_DIR, filename_salud)
+                with open(filepath_salud, "wb") as buffer:
+                    shutil.copyfileobj(salud_doc.file, buffer)
+
+                if salud_size > MAX_IMAGE_COMPRESS_THRESHOLD_MB * 1024 * 1024:
+                    app_logger.info(f"[{request_id}] Comprimiendo doc salud: {salud_size} bytes")
+                    compressed = comprimir_imagen(filepath_salud, MAX_IMAGE_COMPRESS_TARGET_MB)
+                    if not compressed:
+                        os.remove(filepath_salud)
+                        app_logger.error(f"[{request_id}] No se pudo comprimir doc salud")
+                        raise HTTPException(
+                            status_code=413,
+                            detail=f"El documento de salud es demasiado grande y no se pudo comprimir. Máximo permitido: {MAX_IMAGE_DOC_MB} MB."
+                        )
+                    final_size_salud = os.path.getsize(filepath_salud)
+                    app_logger.info(f"[{request_id}] Doc salud comprimido: {salud_size} -> {final_size_salud} bytes")
+                else:
+                    final_size_salud = salud_size
+
+                salud_doc_path_final = filepath_salud
+                app_logger.info(f"[{request_id}] Doc salud guardado: path={filepath_salud}, size={final_size_salud} bytes")
+            except HTTPException:
+                raise
+            except Exception:
+                if salud_doc_path_final and os.path.exists(salud_doc_path_final):
+                    try:
+                        os.remove(salud_doc_path_final)
+                    except Exception:
+                        pass
+                raise HTTPException(status_code=500, detail="Error al guardar el documento de salud")
+
         # Procesamiento de audio
         audio_path_final = None
         if audio_base64:
@@ -2146,6 +2328,7 @@ def procesar_aceptacion(
             doc_frente_path=doc_frente_path_final,
             doc_dorso_path=doc_dorso_path_final,
             audio_path=audio_path_final,
+            salud_doc_path=salud_doc_path_final,
         )
         
         # Log final con todos los datos
@@ -2153,7 +2336,7 @@ def procesar_aceptacion(
             f"[{request_id}] Aceptación guardada exitosamente - "
             f"aceptacion_id={aceptacion_id}, evento_id={evento_id}, "
             f"firma_path={firma_path_final}, doc_frente_path={doc_frente_path_final}, "
-            f"doc_dorso_path={doc_dorso_path_final}, audio_path={audio_path_final}"
+            f"doc_dorso_path={doc_dorso_path_final}, audio_path={audio_path_final}, salud_doc_path={salud_doc_path_final}"
         )
 
         template = templates_env.get_template("confirmacion.html")
@@ -2398,6 +2581,10 @@ def admin_exportar_zip(
             if a.get('doc_dorso_path'):
                 ext = os.path.splitext(a['doc_dorso_path'])[1] or ".jpg"
                 agregar_archivo(a['doc_dorso_path'], f"doc_dorso{ext}")
+
+            if a.get('salud_doc_path'):
+                ext = os.path.splitext(a['salud_doc_path'])[1] or ".jpg"
+                agregar_archivo(a['salud_doc_path'], f"salud_doc{ext}")
 
             if a.get('audio_path'):
                 ext = os.path.splitext(a['audio_path'])[1] or ".webm"
