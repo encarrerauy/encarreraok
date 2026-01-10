@@ -94,6 +94,18 @@ def setup_logging() -> None:
 
 app_logger = setup_logging()
 
+def normalizar_documento_helper(documento: str) -> Optional[str]:
+    """
+    Normaliza un número de documento para búsqueda y persistencia.
+    Elimina todo lo que no sea dígito.
+    Si el resultado es vacío, retorna None (o string vacío, según uso).
+    """
+    if not documento:
+        return None
+    # Filtrar solo dígitos
+    norm = "".join(filter(str.isdigit, str(documento)))
+    return norm if norm else None
+
 
 # ------------------------------------------------------------------------------
 # Constantes
@@ -1379,9 +1391,7 @@ templates_env = Environment(
                 <meta charset="utf-8" />
                 <meta name="viewport" content="width=device-width, initial-scale=1" />
                 <title>Monitor - {{ evento.nombre }}</title>
-                {% if not query %}
-                <meta http-equiv="refresh" content="10">
-                {% endif %}
+                {# Meta refresh removido para evitar borrado de input. Se maneja con JS. #}
                 <style>
                     body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 0; background: #f4f6f9; }
                     .header { background: white; padding: 16px 24px; border-bottom: 1px solid #ddd; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
@@ -1412,7 +1422,7 @@ templates_env = Environment(
                     </div>
                     <div class="controls">
                         <form action="" method="get">
-                            <input type="text" name="q" class="search-box" placeholder="Buscar por nombre o documento..." value="{{ query or '' }}" autocomplete="off">
+                            <input type="text" inputmode="numeric" name="q" class="search-box" placeholder="Buscar por nombre o documento..." value="{{ query or '' }}" autocomplete="off">
                         </form>
                     </div>
                 </div>
@@ -1475,6 +1485,13 @@ templates_env = Environment(
                         searchBox.focus();
                         const len = searchBox.value.length;
                         searchBox.setSelectionRange(len, len);
+                    } else {
+                        // Auto-refresh solo si el input está vacío y no hay interacción
+                        setTimeout(function() {
+                            if (!searchBox.value) {
+                                window.location.reload();
+                            }
+                        }, 10000);
                     }
                 </script>
             </body>
@@ -1800,6 +1817,20 @@ def ensure_storage() -> None:
         pass
 
 
+def normalizar_documento_helper(doc: str) -> str:
+    """Normaliza documento: quita puntos, guiones, espacios y pasa a mayúsculas."""
+    if not doc:
+        return ""
+    return re.sub(r"[.\-\s]", "", doc).upper()
+
+
+def normalizar_documento_helper(doc: str) -> str:
+    """Normaliza documento: quita puntos, guiones, espacios y pasa a mayúsculas."""
+    if not doc:
+        return ""
+    return re.sub(r"[.\-\s]", "", doc).upper()
+
+
 def get_connection() -> sqlite3.Connection:
     """
     Crea una conexión a la base SQLite.
@@ -1988,6 +2019,37 @@ def init_db() -> None:
             ON deslindes(evento_id) WHERE activo = 1
             """
         )
+
+        # Migración: documento_norm para búsqueda optimizada
+        try:
+            cur.execute("ALTER TABLE aceptaciones ADD COLUMN documento_norm TEXT")
+            # Si se creó la columna, ejecutamos backfill inmediato
+            app_logger.info("Columna documento_norm creada. Iniciando backfill...")
+            cur.execute("SELECT id, documento FROM aceptaciones WHERE documento IS NOT NULL")
+            rows = cur.fetchall()
+            count = 0
+            for r in rows:
+                norm = normalizar_documento_helper(r['documento'])
+                cur.execute("UPDATE aceptaciones SET documento_norm = ? WHERE id = ?", (norm, r['id']))
+            app_logger.info(f"Backfill de documento_norm completado: {count} registros actualizados.")
+        except sqlite3.OperationalError:
+            # Si ya existe, verificamos si hay nulos para corregir (backfill perezoso)
+            cur.execute("SELECT COUNT(*) FROM aceptaciones WHERE documento_norm IS NULL AND documento IS NOT NULL")
+            if cur.fetchone()[0] > 0:
+                app_logger.info("Detectados registros sin documento_norm. Ejecutando backfill...")
+                cur.execute("SELECT id, documento FROM aceptaciones WHERE documento_norm IS NULL AND documento IS NOT NULL")
+                rows = cur.fetchall()
+                for r in rows:
+                    norm = normalizar_documento_helper(r['documento'])
+                    cur.execute("UPDATE aceptaciones SET documento_norm = ? WHERE id = ?", (norm, r['id']))
+        
+        # Migración: indices para performance
+        try:
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_aceptaciones_evento ON aceptaciones(evento_id)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_aceptaciones_doc_norm ON aceptaciones(documento_norm)")
+        except sqlite3.OperationalError:
+            pass
+
         conn.commit()
     finally:
         conn.close()
@@ -2022,6 +2084,7 @@ def insertar_aceptacion(
     audio_exento: int = 0,
     firma_asistida: int = 0,
     pdf_token: Optional[str] = None,
+    documento_norm: Optional[str] = None,
 ) -> int:
     """Inserta una aceptación y devuelve el ID creado."""
     conn = get_connection()
@@ -2030,10 +2093,10 @@ def insertar_aceptacion(
         cur.execute(
             """
             INSERT INTO aceptaciones (
-                evento_id, nombre_participante, documento, fecha_hora, ip, user_agent, deslinde_hash_sha256, firma_path, doc_frente_path, doc_dorso_path, audio_path, salud_doc_path, salud_doc_tipo, audio_exento, firma_asistida, pdf_token
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                evento_id, nombre_participante, documento, fecha_hora, ip, user_agent, deslinde_hash_sha256, firma_path, doc_frente_path, doc_dorso_path, audio_path, salud_doc_path, salud_doc_tipo, audio_exento, firma_asistida, pdf_token, documento_norm
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (evento_id, nombre_participante, documento, fecha_hora, ip, user_agent, deslinde_hash_sha256, firma_path, doc_frente_path, doc_dorso_path, audio_path, salud_doc_path, salud_doc_tipo, audio_exento, firma_asistida, pdf_token),
+            (evento_id, nombre_participante, documento, fecha_hora, ip, user_agent, deslinde_hash_sha256, firma_path, doc_frente_path, doc_dorso_path, audio_path, salud_doc_path, salud_doc_tipo, audio_exento, firma_asistida, pdf_token, documento_norm),
         )
         conn.commit()
         return cur.lastrowid
@@ -2159,9 +2222,21 @@ def listar_aceptaciones(evento_id: Optional[int] = None, query: Optional[str] = 
             
         if query:
             # Búsqueda insensible a mayúsculas/minúsculas simple
-            conditions.append("(a.nombre_participante LIKE ? OR a.documento LIKE ?)")
-            wildcard = f"%{query}%"
-            params.extend([wildcard, wildcard])
+            # P1.1 - Fix buscador por documento: soporte parcial y normalizado
+            q_norm = "".join(filter(str.isdigit, query))
+            
+            # Siempre buscamos por nombre
+            clauses = ["a.nombre_participante LIKE ?"]
+            params_list = [f"%{query}%"]
+            
+            # Si hay suficientes dígitos, buscamos también por documento normalizado
+            # (tolerancia a formato y búsqueda parcial)
+            if len(q_norm) >= 3:
+                clauses.append("a.documento_norm LIKE ?")
+                params_list.append(f"%{q_norm}%")
+            
+            conditions.append(f"({' OR '.join(clauses)})")
+            params.extend(params_list)
             
         if conditions:
             sql += " WHERE " + " AND ".join(conditions)
@@ -3212,7 +3287,7 @@ def procesar_aceptacion(
         user_agent = request.headers.get("user-agent", "")
         fecha_hora = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
         # Normalización de documento: quitar puntos, guiones y espacios; a mayúsculas
-        documento_norm = re.sub(r"[.\-\s]", "", documento).upper()
+        documento_norm = normalizar_documento_helper(documento)
         
         # Obtiene texto y hash del deslinde que se está aceptando
         version = evento.get("deslinde_version") or DEFAULT_DESLINDE_VERSION
@@ -3463,7 +3538,7 @@ def procesar_aceptacion(
         aceptacion_id = insertar_aceptacion(
             evento_id=evento_id,
             nombre_participante=nombre_participante.strip(),
-            documento=documento_norm,
+            documento=documento.strip(),
             fecha_hora=fecha_hora,
             ip=ip,
             user_agent=user_agent,
@@ -3477,6 +3552,7 @@ def procesar_aceptacion(
             audio_exento=audio_exento or 0,
             firma_asistida=firma_asistida or 0,
             pdf_token=pdf_token,
+            documento_norm=documento_norm,
         )
         
         # Log final con todos los datos
