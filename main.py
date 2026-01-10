@@ -1528,6 +1528,15 @@ templates_env = Environment(
                     .img-container img { max-width: 100%; max-height: 400px; object-fit: contain; }
                     .watermark { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-45deg); font-size: 3rem; color: rgba(255,255,255,0.1); pointer-events: none; white-space: nowrap; font-weight: bold; z-index: 10; }
                     
+                    /* P1.2 Mejoras Preview */
+                    .img-container.signature { background: #fff !important; border: 1px solid #ccc; }
+                    .img-container.signature .watermark { color: rgba(0,0,0,0.1); font-size: 2rem; }
+                    
+                    .pdf-container { background: #333; padding: 20px; text-align: center; border-radius: 4px; border: 1px solid #444; min-height: 200px; display: flex; flex-direction: column; justify-content: center; align-items: center; }
+                    .pdf-icon { font-size: 3rem; margin-bottom: 10px; }
+                    .btn-download { background: #198754; color: white; padding: 5px 10px; font-size: 0.8rem; margin-top: 10px; text-decoration: none; border-radius: 4px; }
+                    .btn-download:hover { background: #157347; }
+
                     audio { width: 100%; margin-top: 10px; }
                 </style>
             </head>
@@ -1616,9 +1625,9 @@ templates_env = Environment(
                         {% if aceptacion.firma_path %}
                         <div class="evidence-card">
                             <div class="evidence-title">Firma Manuscrita</div>
-                            <div class="img-container">
-                                <div class="watermark">CONFIDENCIAL</div>
-                                <img src="/admin/evidencia/{{ aceptacion.id }}/firma" alt="Firma">
+                            <div class="img-container signature">
+                                <div class="watermark">PREVIEW - NO VÁLIDO LEGAL</div>
+                                <img src="/admin/evidencia/{{ aceptacion.id }}/firma?thumbnail=true" alt="Firma">
                             </div>
                         </div>
                         {% endif %}
@@ -1627,20 +1636,36 @@ templates_env = Environment(
                         {% if aceptacion.doc_frente_path %}
                         <div class="evidence-card">
                             <div class="evidence-title">Documento Frente</div>
-                            <div class="img-container">
-                                <div class="watermark">CONFIDENCIAL</div>
-                                <img src="/admin/evidencia/{{ aceptacion.id }}/doc_frente" alt="Doc Frente">
+                            {% if aceptacion.doc_frente_path.lower().endswith('.pdf') %}
+                            <div class="pdf-container">
+                                <div class="pdf-icon">📄</div>
+                                <p>Documento PDF cargado correctamente</p>
+                                <a href="/admin/evidencia/{{ aceptacion.id }}/doc_frente" class="btn btn-download" download>Descargar Original</a>
                             </div>
+                            {% else %}
+                            <div class="img-container">
+                                <div class="watermark">PREVIEW</div>
+                                <img src="/admin/evidencia/{{ aceptacion.id }}/doc_frente?thumbnail=true" alt="Doc Frente">
+                            </div>
+                            {% endif %}
                         </div>
                         {% endif %}
 
                         {% if aceptacion.doc_dorso_path %}
                         <div class="evidence-card">
                             <div class="evidence-title">Documento Dorso</div>
-                            <div class="img-container">
-                                <div class="watermark">CONFIDENCIAL</div>
-                                <img src="/admin/evidencia/{{ aceptacion.id }}/doc_dorso" alt="Doc Dorso">
+                            {% if aceptacion.doc_dorso_path.lower().endswith('.pdf') %}
+                            <div class="pdf-container">
+                                <div class="pdf-icon">📄</div>
+                                <p>Documento PDF cargado correctamente</p>
+                                <a href="/admin/evidencia/{{ aceptacion.id }}/doc_dorso" class="btn btn-download" download>Descargar Original</a>
                             </div>
+                            {% else %}
+                            <div class="img-container">
+                                <div class="watermark">PREVIEW</div>
+                                <img src="/admin/evidencia/{{ aceptacion.id }}/doc_dorso?thumbnail=true" alt="Doc Dorso">
+                            </div>
+                            {% endif %}
                         </div>
                         {% endif %}
 
@@ -1648,10 +1673,18 @@ templates_env = Environment(
                         {% if aceptacion.salud_doc_path %}
                         <div class="evidence-card">
                             <div class="evidence-title">Documento Salud ({{ aceptacion.salud_doc_tipo }})</div>
+                            {% if aceptacion.salud_doc_path.lower().endswith('.pdf') %}
+                            <div class="pdf-container">
+                                <div class="pdf-icon">📄</div>
+                                <p>Documento PDF cargado correctamente</p>
+                                <a href="/admin/evidencia/{{ aceptacion.id }}/salud_doc" class="btn btn-download" download>Descargar Original</a>
+                            </div>
+                            {% else %}
                             <div class="img-container">
                                 <div class="watermark">MÉDICO</div>
-                                <img src="/admin/evidencia/{{ aceptacion.id }}/salud_doc" alt="Salud Doc">
+                                <img src="/admin/evidencia/{{ aceptacion.id }}/salud_doc?thumbnail=true" alt="Salud Doc">
                             </div>
+                            {% endif %}
                         </div>
                         {% endif %}
 
@@ -4350,6 +4383,7 @@ def admin_preview_evento(
 def admin_servir_evidencia(
     aceptacion_id: int,
     tipo: str,
+    thumbnail: bool = False,
     username: str = Depends(get_current_username)
 ):
     """
@@ -4395,6 +4429,29 @@ def admin_servir_evidencia(
         media_type = "audio/webm"
     elif ext.lower() == '.pdf':
         media_type = "application/pdf"
+
+    # Lógica de Thumbnail (P1.2)
+    if thumbnail and PIL_AVAILABLE and media_type.startswith("image/"):
+        try:
+            with Image.open(file_path) as img:
+                # Resize manteniendo aspect ratio
+                img.thumbnail((400, 400)) 
+                buf = io.BytesIO()
+                
+                # Convertir a RGB si guardamos como JPEG (salvo PNG)
+                save_format = "JPEG"
+                if media_type == "image/png":
+                    save_format = "PNG"
+                else:
+                    if img.mode in ("RGBA", "P"):
+                        img = img.convert("RGB")
+                
+                img.save(buf, format=save_format, quality=70)
+                buf.seek(0)
+                return StreamingResponse(buf, media_type=media_type)
+        except Exception as e:
+            # Fallback silencioso al original si falla resize
+            app_logger.error(f"Error generando thumbnail para {file_path}: {e}")
         
     def iterfile():
         with open(file_path, mode="rb") as file_like:
