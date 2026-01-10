@@ -333,6 +333,24 @@ templates_env = Environment(
                         overflow: visible !important;
                     }
 
+                    /* FIX REGRESION: Ayuda visible */
+                    .field-help-visible {
+                        display: block;
+                        width: 100%;
+                        margin-top: 6px;
+                        margin-bottom: 12px;
+                        font-size: 0.85rem;
+                        line-height: 1.3;
+                        color: #6b7280;
+                    }
+
+                    .card,
+                    .form-card,
+                    .section,
+                    .step {
+                        overflow: visible !important;
+                    }
+
                     /* Mobile Optimizations */
                     @media (max-width: 576px) {
                         body { padding: 12px; }
@@ -443,7 +461,7 @@ templates_env = Environment(
                                             <button type="button" class="btn btn-primary btn-sm" id="btn-play" disabled>▶ Escuchar</button>
                                             <button type="button" class="btn btn-secondary btn-sm" id="btn-reset" disabled>🔄 Regrabar</button>
                                         </div>
-                                        <div id="audio-status" class="help-text">Listo para grabar</div>
+                                        <div id="audio-status" class="field-help-visible">Listo para grabar</div>
                                         <div id="audio-feedback" class="feedback"></div>
                                         
                                         <!-- Elementos ocultos -->
@@ -463,8 +481,8 @@ templates_env = Environment(
                                 </div>
                                 <div class="signature-tools">
                                     <button type="button" class="btn btn-secondary btn-sm" id="clear-signature">Borrar firma</button>
-                                    <div class="help-text">Firme dentro del recuadro</div>
                                 </div>
+                                <div class="field-help-visible">Firme dentro del recuadro</div>
                                 <div id="firma_feedback" class="feedback"></div>
 
                                 <div class="checkbox-wrapper">
