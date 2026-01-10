@@ -322,6 +322,17 @@ templates_env = Environment(
                         height: 18px;
                     }
 
+                    /* Fix 1: Help Texts Visibility */
+                    .file-hint, .help-text, .form-help {
+                        display: block !important;
+                        font-size: 0.85rem;
+                        color: #6b7280;
+                        margin-top: 6px;
+                    }
+                    .card, .form-card {
+                        overflow: visible !important;
+                    }
+
                     /* Mobile Optimizations */
                     @media (max-width: 576px) {
                         body { padding: 12px; }
@@ -432,7 +443,7 @@ templates_env = Environment(
                                             <button type="button" class="btn btn-primary btn-sm" id="btn-play" disabled>▶ Escuchar</button>
                                             <button type="button" class="btn btn-secondary btn-sm" id="btn-reset" disabled>🔄 Regrabar</button>
                                         </div>
-                                        <div id="audio-status" style="margin-top:8px; font-size:0.85rem; color:#666;">Listo para grabar</div>
+                                        <div id="audio-status" class="help-text">Listo para grabar</div>
                                         <div id="audio-feedback" class="feedback"></div>
                                         
                                         <!-- Elementos ocultos -->
@@ -452,7 +463,7 @@ templates_env = Environment(
                                 </div>
                                 <div class="signature-tools">
                                     <button type="button" class="btn btn-secondary btn-sm" id="clear-signature">Borrar firma</button>
-                                    <div style="font-size:0.8rem; color:#666;">Firme dentro del recuadro</div>
+                                    <div class="help-text">Firme dentro del recuadro</div>
                                 </div>
                                 <div id="firma_feedback" class="feedback"></div>
 
@@ -623,8 +634,16 @@ templates_env = Environment(
                                     canvas.height = canvas.offsetHeight * ratio;
                                     ctx.scale(ratio, ratio);
                                 }
-                                window.addEventListener('resize', resizeCanvas);
+                                // FIX 2: Evitar reinicializar en scroll/resize
+                                // window.addEventListener('resize', resizeCanvas);
                                 resizeCanvas();
+
+                                // Restaurar firma si existe (FIX 2)
+                                if (hiddenInput.value) {
+                                    const img = new Image();
+                                    img.onload = () => ctx.drawImage(img, 0, 0, canvas.offsetWidth, canvas.offsetHeight);
+                                    img.src = hiddenInput.value;
+                                }
 
                                 // Eventos de dibujo
                                 let drawing = false;
@@ -657,6 +676,11 @@ templates_env = Environment(
                                 canvas.addEventListener('touchstart', start, {passive: false});
                                 canvas.addEventListener('touchmove', move, {passive: false});
                                 canvas.addEventListener('touchend', end);
+                                
+                                // FIX 2: Guardar estado en cada trazo
+                                const saveSignature = () => { hiddenInput.value = canvas.toDataURL(); };
+                                canvas.addEventListener('mouseup', saveSignature);
+                                canvas.addEventListener('touchend', saveSignature);
 
                                 document.getElementById('clear-signature').addEventListener('click', () => {
                                     ctx.clearRect(0, 0, canvas.width, canvas.height);
