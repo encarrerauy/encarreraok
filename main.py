@@ -1644,7 +1644,7 @@ templates_env = Environment(
                             </div>
                             {% else %}
                             <div class="img-container">
-                                <div class="watermark">PREVIEW</div>
+                                <div class="watermark">PREVIEW – NO VÁLIDO LEGAL</div>
                                 <img src="/admin/evidencia/{{ aceptacion.id }}/doc_frente?thumbnail=true" alt="Doc Frente">
                             </div>
                             {% endif %}
@@ -1662,7 +1662,7 @@ templates_env = Environment(
                             </div>
                             {% else %}
                             <div class="img-container">
-                                <div class="watermark">PREVIEW</div>
+                                <div class="watermark">PREVIEW – NO VÁLIDO LEGAL</div>
                                 <img src="/admin/evidencia/{{ aceptacion.id }}/doc_dorso?thumbnail=true" alt="Doc Dorso">
                             </div>
                             {% endif %}
@@ -1681,7 +1681,7 @@ templates_env = Environment(
                             </div>
                             {% else %}
                             <div class="img-container">
-                                <div class="watermark">MÉDICO</div>
+                                <div class="watermark">PREVIEW – NO VÁLIDO LEGAL</div>
                                 <img src="/admin/evidencia/{{ aceptacion.id }}/salud_doc?thumbnail=true" alt="Salud Doc">
                             </div>
                             {% endif %}
