@@ -1362,12 +1362,300 @@ templates_env = Environment(
                             <td>{{ 'SÍ' if e.req_documento else '-' }}</td>
                             <td>{{ 'SÍ' if e.req_audio else '-' }}</td>
                             <td>
+                                <a href="/admin/evento/{{ e.id }}/monitor" class="btn btn-sm" style="background: #198754; margin-right: 5px;">🚀 Ingresar</a>
                                 <a href="/admin/eventos/{{ e.id }}/editar" class="btn btn-sm">✏️ Editar</a>
                             </td>
                         </tr>
                     {% endfor %}
                     </tbody>
                 </table>
+            </body>
+            </html>
+            """,
+            "admin_monitor_evento.html": """
+            <!doctype html>
+            <html lang="es">
+            <head>
+                <meta charset="utf-8" />
+                <meta name="viewport" content="width=device-width, initial-scale=1" />
+                <title>Monitor - {{ evento.nombre }}</title>
+                {% if not query %}
+                <meta http-equiv="refresh" content="10">
+                {% endif %}
+                <style>
+                    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 0; background: #f4f6f9; }
+                    .header { background: white; padding: 16px 24px; border-bottom: 1px solid #ddd; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+                    .header h1 { margin: 0; font-size: 1.25rem; }
+                    .header .controls { display: flex; gap: 10px; }
+                    .container { padding: 24px; max-width: 1200px; margin: 0 auto; }
+                    .search-box { padding: 8px 12px; border: 1px solid #ccc; border-radius: 4px; width: 250px; }
+                    .card { background: white; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); overflow: hidden; }
+                    table { width: 100%; border-collapse: collapse; }
+                    th, td { padding: 12px 16px; text-align: left; border-bottom: 1px solid #eee; }
+                    th { background: #f8f9fa; font-weight: 600; color: #555; }
+                    tr:hover { background: #f1f3f5; }
+                    .status-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 12px; font-size: 0.85rem; font-weight: 500; }
+                    .status-ok { background: #d1e7dd; color: #0f5132; }
+                    .status-incomplete { background: #fff3cd; color: #664d03; }
+                    .btn { text-decoration: none; padding: 6px 12px; border-radius: 4px; font-size: 0.9rem; display: inline-block; cursor: pointer; }
+                    .btn-primary { background: #0d6efd; color: white; }
+                    .btn-outline { border: 1px solid #ccc; color: #555; background: white; }
+                    .timestamp { color: #666; font-size: 0.9rem; }
+                    .icon { font-size: 1.1em; }
+                </style>
+            </head>
+            <body>
+                <div class="header">
+                    <div style="display: flex; align-items: center; gap: 16px;">
+                        <a href="/admin/eventos" class="btn btn-outline">← Volver</a>
+                        <h1>Monitor: {{ evento.nombre }}</h1>
+                    </div>
+                    <div class="controls">
+                        <form action="" method="get">
+                            <input type="text" name="q" class="search-box" placeholder="Buscar por nombre o documento..." value="{{ query or '' }}" autocomplete="off">
+                        </form>
+                    </div>
+                </div>
+
+                <div class="container">
+                    <div class="card">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Nombre</th>
+                                    <th>Documento</th>
+                                    <th>Estado</th>
+                                    <th>Hora</th>
+                                    <th>Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for a in aceptaciones %}
+                                {% set status_ok = true %}
+                                {% if evento.req_firma and not a.firma_path %} {% set status_ok = false %} {% endif %}
+                                {% if evento.req_documento and (not a.doc_frente_path or not a.doc_dorso_path) %} {% set status_ok = false %} {% endif %}
+                                {% if evento.req_audio and (not a.audio_path and not a.audio_exento) %} {% set status_ok = false %} {% endif %}
+                                {% if evento.req_salud and not a.salud_doc_path %} {% set status_ok = false %} {% endif %}
+                                
+                                <tr>
+                                    <td><strong>{{ a.nombre_participante }}</strong></td>
+                                    <td>{{ a.documento }}</td>
+                                    <td>
+                                        {% if status_ok %}
+                                        <span class="status-badge status-ok"><span class="icon">🟢</span> COMPLETO</span>
+                                        {% else %}
+                                        <span class="status-badge status-incomplete"><span class="icon">🟡</span> INCOMPLETO</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="timestamp">{{ a.fecha_hora|replace("T", " ")|replace("Z", "") }}</td>
+                                    <td>
+                                        <a href="/admin/evento/{{ evento.id }}/preview/{{ a.id }}" class="btn {{ 'btn-primary' if not status_ok else 'btn-outline' }}">
+                                            {{ '🔍 Verificar' if not status_ok else '👁️ Ver' }}
+                                        </a>
+                                    </td>
+                                </tr>
+                                {% else %}
+                                <tr>
+                                    <td colspan="5" style="text-align: center; padding: 24px; color: #666;">
+                                        {% if query %}
+                                        No se encontraron resultados para "{{ query }}"
+                                        {% else %}
+                                        Esperando registros...
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <script>
+                    const searchBox = document.querySelector('input[name="q"]');
+                    if (searchBox.value) {
+                        searchBox.focus();
+                        const len = searchBox.value.length;
+                        searchBox.setSelectionRange(len, len);
+                    }
+                </script>
+            </body>
+            </html>
+            """,
+            "admin_preview.html": """
+            <!doctype html>
+            <html lang="es">
+            <head>
+                <meta charset="utf-8" />
+                <meta name="viewport" content="width=device-width, initial-scale=1" />
+                <title>Preview - {{ aceptacion.nombre_participante }}</title>
+                <style>
+                    body { font-family: system-ui, -apple-system, sans-serif; background: #222; color: #eee; margin: 0; display: flex; flex-direction: column; height: 100vh; }
+                    .header { background: #333; padding: 10px 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #444; }
+                    .header h2 { margin: 0; font-size: 1.1rem; }
+                    .content { flex: 1; display: grid; grid-template-columns: 300px 1fr; gap: 0; overflow: hidden; }
+                    .sidebar { background: #2a2a2a; padding: 20px; border-right: 1px solid #444; overflow-y: auto; }
+                    .main-view { padding: 20px; overflow-y: auto; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; }
+                    .btn { padding: 8px 16px; border-radius: 4px; text-decoration: none; cursor: pointer; display: inline-block; font-size: 0.9rem; }
+                    .btn-close { background: #666; color: white; }
+                    .btn-close:hover { background: #777; }
+                    
+                    .checklist-item { margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid #444; }
+                    .checklist-item label { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+                    .checklist-item input[type="checkbox"] { transform: scale(1.2); }
+                    .status-tag { padding: 2px 6px; border-radius: 4px; font-size: 0.75rem; font-weight: bold; margin-left: auto; }
+                    .tag-ok { background: #198754; color: white; }
+                    .tag-miss { background: #dc3545; color: white; }
+
+                    .evidence-card { background: #333; border-radius: 8px; padding: 10px; margin-bottom: 20px; width: 100%; max-width: 600px; }
+                    .evidence-title { margin-bottom: 10px; font-weight: bold; color: #ccc; border-bottom: 1px solid #444; padding-bottom: 5px; }
+                    .img-container { position: relative; width: 100%; min-height: 200px; background: #000; display: flex; align-items: center; justify-content: center; border-radius: 4px; overflow: hidden; }
+                    .img-container img { max-width: 100%; max-height: 400px; object-fit: contain; }
+                    .watermark { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-45deg); font-size: 3rem; color: rgba(255,255,255,0.1); pointer-events: none; white-space: nowrap; font-weight: bold; z-index: 10; }
+                    
+                    audio { width: 100%; margin-top: 10px; }
+                </style>
+            </head>
+            <body>
+                <div class="header">
+                    <h2>{{ aceptacion.nombre_participante }} ({{ aceptacion.documento }})</h2>
+                    <a href="/admin/evento/{{ evento.id }}/monitor" class="btn btn-close">✕ Cerrar</a>
+                </div>
+                
+                <div class="content">
+                    <div class="sidebar">
+                        <h3>Checklist</h3>
+                        
+                        <div class="checklist-item">
+                            <label>
+                                <input type="checkbox" disabled {{ 'checked' if aceptacion.firma_path else '' }}>
+                                Firma Manuscrita
+                            </label>
+                            {% if aceptacion.firma_path %}
+                            <span class="status-tag tag-ok">OK</span>
+                            {% else %}
+                            <span class="status-tag tag-miss">FALTA</span>
+                            {% endif %}
+                        </div>
+
+                        <div class="checklist-item">
+                            <label>
+                                <input type="checkbox" disabled {{ 'checked' if aceptacion.doc_frente_path else '' }}>
+                                Doc. Frente
+                            </label>
+                            {% if aceptacion.doc_frente_path %}
+                            <span class="status-tag tag-ok">OK</span>
+                            {% else %}
+                            <span class="status-tag tag-miss">FALTA</span>
+                            {% endif %}
+                        </div>
+
+                        <div class="checklist-item">
+                            <label>
+                                <input type="checkbox" disabled {{ 'checked' if aceptacion.doc_dorso_path else '' }}>
+                                Doc. Dorso
+                            </label>
+                            {% if aceptacion.doc_dorso_path %}
+                            <span class="status-tag tag-ok">OK</span>
+                            {% else %}
+                            <span class="status-tag tag-miss">FALTA</span>
+                            {% endif %}
+                        </div>
+
+                        <div class="checklist-item">
+                            <label>
+                                <input type="checkbox" disabled {{ 'checked' if aceptacion.audio_path else '' }}>
+                                Audio Aceptación
+                            </label>
+                            {% if aceptacion.audio_path %}
+                            <span class="status-tag tag-ok">OK</span>
+                            {% elif aceptacion.audio_exento %}
+                            <span class="status-tag tag-ok" style="background:#ffc107;color:#000;">EXENTO</span>
+                            {% else %}
+                            <span class="status-tag tag-miss">FALTA</span>
+                            {% endif %}
+                        </div>
+                        
+                        {% if evento.req_salud %}
+                        <div class="checklist-item">
+                            <label>
+                                <input type="checkbox" disabled {{ 'checked' if aceptacion.salud_doc_path else '' }}>
+                                Doc. Salud
+                            </label>
+                            {% if aceptacion.salud_doc_path %}
+                            <span class="status-tag tag-ok">OK</span>
+                            {% else %}
+                            <span class="status-tag tag-miss">FALTA</span>
+                            {% endif %}
+                        </div>
+                        {% endif %}
+
+                        <div style="margin-top: 30px; font-size: 0.85rem; color: #888;">
+                            <p>IP: {{ aceptacion.ip }}</p>
+                            <p>Fecha: {{ aceptacion.fecha_hora }}</p>
+                        </div>
+                    </div>
+
+                    <div class="main-view">
+                        <!-- Firma -->
+                        {% if aceptacion.firma_path %}
+                        <div class="evidence-card">
+                            <div class="evidence-title">Firma Manuscrita</div>
+                            <div class="img-container">
+                                <div class="watermark">CONFIDENCIAL</div>
+                                <img src="/admin/evidencia/{{ aceptacion.id }}/firma" alt="Firma">
+                            </div>
+                        </div>
+                        {% endif %}
+
+                        <!-- Documentos -->
+                        {% if aceptacion.doc_frente_path %}
+                        <div class="evidence-card">
+                            <div class="evidence-title">Documento Frente</div>
+                            <div class="img-container">
+                                <div class="watermark">CONFIDENCIAL</div>
+                                <img src="/admin/evidencia/{{ aceptacion.id }}/doc_frente" alt="Doc Frente">
+                            </div>
+                        </div>
+                        {% endif %}
+
+                        {% if aceptacion.doc_dorso_path %}
+                        <div class="evidence-card">
+                            <div class="evidence-title">Documento Dorso</div>
+                            <div class="img-container">
+                                <div class="watermark">CONFIDENCIAL</div>
+                                <img src="/admin/evidencia/{{ aceptacion.id }}/doc_dorso" alt="Doc Dorso">
+                            </div>
+                        </div>
+                        {% endif %}
+
+                        <!-- Salud -->
+                        {% if aceptacion.salud_doc_path %}
+                        <div class="evidence-card">
+                            <div class="evidence-title">Documento Salud ({{ aceptacion.salud_doc_tipo }})</div>
+                            <div class="img-container">
+                                <div class="watermark">MÉDICO</div>
+                                <img src="/admin/evidencia/{{ aceptacion.id }}/salud_doc" alt="Salud Doc">
+                            </div>
+                        </div>
+                        {% endif %}
+
+                        <!-- Audio -->
+                        {% if aceptacion.audio_path %}
+                        <div class="evidence-card">
+                            <div class="evidence-title">Audio Aceptación</div>
+                            <audio controls>
+                                <source src="/admin/evidencia/{{ aceptacion.id }}/audio" type="audio/webm">
+                                Tu navegador no soporta audio.
+                            </audio>
+                        </div>
+                        {% endif %}
+                        
+                        {% if not aceptacion.firma_path and not aceptacion.doc_frente_path and not aceptacion.audio_path %}
+                        <div style="text-align: center; padding: 40px; color: #666;">
+                            <p>No hay evidencias cargadas para visualizar.</p>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
             </body>
             </html>
             """,
@@ -1829,12 +2117,16 @@ def actualizar_evento(
         conn.close()
 
 
-def listar_aceptaciones(evento_id: Optional[int] = None) -> List[Dict[str, Any]]:
-    """Lista aceptaciones con datos del evento (join simple). Filtra por evento si se especifica."""
+def listar_aceptaciones(evento_id: Optional[int] = None, query: Optional[str] = None) -> List[Dict[str, Any]]:
+    """
+    Lista aceptaciones con datos del evento (join simple). 
+    Filtra por evento si se especifica.
+    Filtra por nombre o documento si query se especifica.
+    """
     conn = get_connection()
     try:
         cur = conn.cursor()
-        query = """
+        sql = """
             SELECT
                 a.id,
                 a.evento_id,
@@ -1859,13 +2151,24 @@ def listar_aceptaciones(evento_id: Optional[int] = None) -> List[Dict[str, Any]]
             JOIN eventos e ON e.id = a.evento_id
         """
         params = []
+        conditions = []
+        
         if evento_id is not None:
-            query += " WHERE a.evento_id = ? "
+            conditions.append("a.evento_id = ?")
             params.append(evento_id)
+            
+        if query:
+            # Búsqueda insensible a mayúsculas/minúsculas simple
+            conditions.append("(a.nombre_participante LIKE ? OR a.documento LIKE ?)")
+            wildcard = f"%{query}%"
+            params.extend([wildcard, wildcard])
+            
+        if conditions:
+            sql += " WHERE " + " AND ".join(conditions)
         
-        query += " ORDER BY a.id DESC"
+        sql += " ORDER BY a.id DESC"
         
-        cur.execute(query, tuple(params))
+        cur.execute(sql, tuple(params))
         rows = cur.fetchall()
         return [dict(r) for r in rows]
     finally:
@@ -3911,6 +4214,117 @@ def admin_revocar_token(
         </script>
         """
     )
+
+
+@app.get("/admin/evento/{evento_id}/monitor", response_class=HTMLResponse)
+def admin_monitor_evento(
+    evento_id: int,
+    q: Optional[str] = None,
+    username: str = Depends(get_current_username)
+) -> HTMLResponse:
+    """
+    Monitor en tiempo real para el operador de entrada.
+    Auto-refresh cada 10s (si no hay búsqueda).
+    """
+    evento = get_evento(evento_id)
+    if not evento:
+        raise HTTPException(status_code=404, detail="Evento no encontrado")
+        
+    # Obtener aceptaciones (filtradas por query si existe)
+    aceptaciones = listar_aceptaciones(evento_id=evento_id, query=q)
+    
+    template = templates_env.get_template("admin_monitor_evento.html")
+    html = template.render(
+        evento=evento,
+        aceptaciones=aceptaciones,
+        query=q
+    )
+    return HTMLResponse(content=html)
+
+
+@app.get("/admin/evento/{evento_id}/preview/{aceptacion_id}", response_class=HTMLResponse)
+def admin_preview_evento(
+    evento_id: int,
+    aceptacion_id: int,
+    username: str = Depends(get_current_username)
+) -> HTMLResponse:
+    """
+    Vista express de validación de evidencias.
+    """
+    evento = get_evento(evento_id)
+    if not evento:
+        raise HTTPException(status_code=404, detail="Evento no encontrado")
+        
+    aceptacion = get_aceptacion_detalle(aceptacion_id)
+    if not aceptacion:
+        raise HTTPException(status_code=404, detail="Aceptación no encontrada")
+        
+    if str(aceptacion["evento_id"]) != str(evento_id):
+        raise HTTPException(status_code=400, detail="Aceptación no pertenece al evento")
+    
+    template = templates_env.get_template("admin_preview.html")
+    html = template.render(
+        evento=evento,
+        aceptacion=aceptacion
+    )
+    return HTMLResponse(content=html)
+
+
+@app.get("/admin/evidencia/{aceptacion_id}/{tipo}")
+def admin_servir_evidencia(
+    aceptacion_id: int,
+    tipo: str,
+    username: str = Depends(get_current_username)
+):
+    """
+    Sirve archivos de evidencia protegidos (requiere auth).
+    tipo: 'firma', 'doc_frente', 'doc_dorso', 'audio', 'salud_doc'
+    """
+    aceptacion = get_aceptacion_detalle(aceptacion_id)
+    if not aceptacion:
+        raise HTTPException(status_code=404, detail="Aceptación no encontrada")
+        
+    file_path = None
+    media_type = "application/octet-stream"
+    
+    if tipo == "firma":
+        file_path = aceptacion.get("firma_path")
+        media_type = "image/png" # Asumimos PNG por canvas
+    elif tipo == "doc_frente":
+        file_path = aceptacion.get("doc_frente_path")
+        media_type = "image/jpeg" # Default
+    elif tipo == "doc_dorso":
+        file_path = aceptacion.get("doc_dorso_path")
+        media_type = "image/jpeg"
+    elif tipo == "audio":
+        file_path = aceptacion.get("audio_path")
+        media_type = "audio/webm"
+    elif tipo == "salud_doc":
+        file_path = aceptacion.get("salud_doc_path")
+        media_type = "image/jpeg"
+    else:
+        raise HTTPException(status_code=400, detail="Tipo de evidencia inválido")
+        
+    if not file_path or not os.path.exists(file_path):
+        # Retornar 404 o una imagen placeholder
+        raise HTTPException(status_code=404, detail="Evidencia no encontrada")
+        
+    # Detectar extensión real para mime type si es posible
+    _, ext = os.path.splitext(file_path)
+    if ext.lower() in ['.jpg', '.jpeg']:
+        media_type = "image/jpeg"
+    elif ext.lower() == '.png':
+        media_type = "image/png"
+    elif ext.lower() == '.webm':
+        media_type = "audio/webm"
+    elif ext.lower() == '.pdf':
+        media_type = "application/pdf"
+        
+    def iterfile():
+        with open(file_path, mode="rb") as file_like:
+            yield from file_like
+
+    return StreamingResponse(iterfile(), media_type=media_type)
 
 
 # ------------------------------------------------------------------------------
