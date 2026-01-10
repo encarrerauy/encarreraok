@@ -38,6 +38,7 @@ import uuid
 import shutil
 import zipfile
 import json
+import struct
 from typing import Optional, List, Dict, Any
 import io
 import logging
@@ -956,6 +957,42 @@ templates_env = Environment(
                         <span class="value">{{ 'SÍ' if aceptacion.firma_asistida else 'NO' }}</span>
                     </div>
 
+                    <h2>Control de Token PDF (Legal)</h2>
+                    <div class="field">
+                        <span class="label">Token ID:</span>
+                        <span class="value" style="font-family: monospace;">{{ aceptacion.pdf_token }}</span>
+                    </div>
+                    <div class="field">
+                        <span class="label">Estado:</span>
+                        <span class="value">
+                            {% if aceptacion.pdf_token_revoked %}
+                                <span style="color: #dc3545; font-weight: bold;">REVOCADO</span>
+                            {% elif aceptacion.pdf_token_expires_at and aceptacion.pdf_token_expires_at < now_utc %}
+                                <span style="color: #dc3545; font-weight: bold;">VENCIDO</span>
+                            {% else %}
+                                <span style="color: #198754; font-weight: bold;">ACTIVO</span>
+                            {% endif %}
+                        </span>
+                    </div>
+                    <div class="field">
+                        <span class="label">Expiración:</span>
+                        <span class="value">{{ aceptacion.pdf_token_expires_at or 'Indefinida' }}</span>
+                    </div>
+                    <div class="field">
+                        <span class="label">Accesos:</span>
+                        <span class="value">{{ aceptacion.pdf_access_count or 0 }} (Último: {{ aceptacion.pdf_last_access_at or 'Nunca' }})</span>
+                    </div>
+                    
+                    <div style="margin-top: 16px; display: flex; gap: 10px; align-items: center;">
+                        <a href="/aceptacion/pdf/{{ aceptacion.pdf_token }}" target="_blank" class="btn" style="background: #0d6efd; color: white;">Probar descarga pública</a>
+                        
+                        {% if not aceptacion.pdf_token_revoked %}
+                        <form action="/admin/aceptaciones/{{ aceptacion.id }}/revocar_token" method="post" onsubmit="return confirm('¿Seguro que desea revocar este token? El usuario ya no podrá descargar el PDF.');" style="margin: 0;">
+                            <button type="submit" class="btn" style="background: #dc3545; color: white;">Revocar Token</button>
+                        </form>
+                        {% endif %}
+                    </div>
+
                     <h2>Evidencias</h2>
                     
                     <div class="field">
@@ -1608,6 +1645,27 @@ def init_db() -> None:
         except sqlite3.OperationalError:
             pass
             
+        # Migración: Stage A.2 - Control de tokens PDF
+        try:
+            cur.execute("ALTER TABLE aceptaciones ADD COLUMN pdf_token_expires_at TEXT") # ISO UTC
+        except sqlite3.OperationalError:
+            pass
+        
+        try:
+            cur.execute("ALTER TABLE aceptaciones ADD COLUMN pdf_token_revoked INTEGER DEFAULT 0 CHECK (pdf_token_revoked IN (0,1))")
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            cur.execute("ALTER TABLE aceptaciones ADD COLUMN pdf_last_access_at TEXT") # ISO UTC
+        except sqlite3.OperationalError:
+            pass
+            
+        try:
+            cur.execute("ALTER TABLE aceptaciones ADD COLUMN pdf_access_count INTEGER DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass
+            
         # Tabla de deslindes versionados
         cur.execute(
             """
@@ -1893,7 +1951,12 @@ def get_aceptacion_detalle(aceptacion_id: int) -> Optional[Dict[str, Any]]:
                 a.salud_doc_path,
                 a.salud_doc_tipo,
                 a.audio_exento,
-                a.firma_asistida
+                a.firma_asistida,
+                a.pdf_token,
+                a.pdf_token_expires_at,
+                a.pdf_token_revoked,
+                a.pdf_last_access_at,
+                a.pdf_access_count
             FROM aceptaciones a
             JOIN eventos e ON e.id = a.evento_id
             WHERE a.id = ?
@@ -1945,7 +2008,11 @@ def get_aceptacion_por_token(pdf_token: str) -> Optional[Dict[str, Any]]:
                 a.salud_doc_tipo,
                 a.audio_exento,
                 a.firma_asistida,
-                a.pdf_token
+                a.pdf_token,
+                a.pdf_token_expires_at,
+                a.pdf_token_revoked,
+                a.pdf_last_access_at,
+                a.pdf_access_count
             FROM aceptaciones a
             JOIN eventos e ON e.id = a.evento_id
             WHERE a.pdf_token = ?
@@ -1958,6 +2025,43 @@ def get_aceptacion_por_token(pdf_token: str) -> Optional[Dict[str, Any]]:
         
         data = dict(row)
         return data
+    finally:
+        conn.close()
+
+
+def revocar_pdf_token(aceptacion_id: int) -> bool:
+    """Revoca el token PDF de una aceptación (soft revoke)."""
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE aceptaciones SET pdf_token_revoked = 1 WHERE id = ?",
+            (aceptacion_id,)
+        )
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def registrar_acceso_pdf(aceptacion_id: int):
+    """Registra un acceso exitoso al PDF."""
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        now_utc = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+        cur.execute(
+            """
+            UPDATE aceptaciones 
+            SET pdf_last_access_at = ?, 
+                pdf_access_count = COALESCE(pdf_access_count, 0) + 1 
+            WHERE id = ?
+            """,
+            (now_utc, aceptacion_id)
+        )
+        conn.commit()
+    except Exception as e:
+        app_logger.error(f"Error registrando acceso PDF id={aceptacion_id}: {e}")
     finally:
         conn.close()
 
@@ -2098,12 +2202,163 @@ def insertar_deslinde(
 
 
 # ------------------------------------------------------------------------------
-# Generador PDF minimalista (sin dependencias externas)
+# Generador PDF con soporte Unicode (TTF Embed + Identity-H)
 # ------------------------------------------------------------------------------
+class TTFFont:
+    """
+    Parser minimalista de archivos TTF para extracción de métricas y mapeo Unicode.
+    Soporta tablas: head, hhea, hmtx, cmap (format 4).
+    """
+    def __init__(self, font_path: str):
+        with open(font_path, 'rb') as f:
+            self.data = f.read()
+        
+        self.tables = {}
+        self.units_per_em = 1000
+        self.ascent = 0
+        self.descent = 0
+        self.cap_height = 0
+        self.bbox = [0, 0, 0, 0]
+        self.advance_widths = []
+        self.cmap = {}  # unicode -> gid
+        self.gid_to_unicode = {} # gid -> unicode
+        self.num_metrics = 0
+        
+        self._parse()
+
+    def _parse(self):
+        # Offset Table
+        num_tables = struct.unpack('>H', self.data[4:6])[0]
+        offset = 12
+        for _ in range(num_tables):
+            tag = self.data[offset:offset+4].decode('latin1')
+            checksum, t_offset, t_length = struct.unpack('>III', self.data[offset+4:offset+16])
+            self.tables[tag] = (t_offset, t_length)
+            offset += 16
+            
+        self._parse_head()
+        self._parse_hhea()
+        self._parse_hmtx()
+        self._parse_cmap()
+
+    def _parse_head(self):
+        if 'head' not in self.tables: return
+        off, _ = self.tables['head']
+        self.units_per_em = struct.unpack('>H', self.data[off+18:off+20])[0]
+        x_min, y_min, x_max, y_max = struct.unpack('>hhhh', self.data[off+36:off+44])
+        self.bbox = [x_min, y_min, x_max, y_max]
+
+    def _parse_hhea(self):
+        if 'hhea' not in self.tables: return
+        off, _ = self.tables['hhea']
+        self.ascent, self.descent = struct.unpack('>hh', self.data[off+4:off+8])
+        self.num_metrics = struct.unpack('>H', self.data[off+34:off+36])[0]
+
+    def _parse_hmtx(self):
+        if 'hmtx' not in self.tables: return
+        off, _ = self.tables['hmtx']
+        # Read advance widths
+        self.advance_widths = []
+        for i in range(self.num_metrics):
+            aw, lsb = struct.unpack('>Hh', self.data[off + i*4 : off + i*4 + 4])
+            self.advance_widths.append(aw)
+        
+        # We don't read LSBs for trailing glyphs to save memory/time, 
+        # usually assume last width for remaining glyphs (monospaced logic) or 0
+        
+    def _parse_cmap(self):
+        if 'cmap' not in self.tables: return
+        off, _ = self.tables['cmap']
+        num_subtables = struct.unpack('>H', self.data[off+2:off+4])[0]
+        
+        subtable_offset = 0
+        for i in range(num_subtables):
+            platform_id, encoding_id, s_off = struct.unpack('>HHI', self.data[off+4 + i*8 : off+4 + i*8 + 8])
+            # Prefer Windows Unicode (3, 1) or (3, 10)
+            if platform_id == 3 and encoding_id in (1, 10):
+                subtable_offset = off + s_off
+                break
+            # Fallback to Unicode Platform (0, *)
+            if platform_id == 0:
+                subtable_offset = off + s_off
+        
+        if subtable_offset == 0: return
+
+        format = struct.unpack('>H', self.data[subtable_offset:subtable_offset+2])[0]
+        if format == 4:
+            self._parse_cmap_format_4(subtable_offset)
+
+    def _parse_cmap_format_4(self, offset):
+        length = struct.unpack('>H', self.data[offset+2:offset+4])[0]
+        seg_count_x2 = struct.unpack('>H', self.data[offset+6:offset+8])[0]
+        seg_count = seg_count_x2 // 2
+        
+        end_counts = []
+        for i in range(seg_count):
+            pos = offset + 14 + i*2
+            end_counts.append(struct.unpack('>H', self.data[pos:pos+2])[0])
+            
+        start_counts = []
+        for i in range(seg_count):
+            pos = offset + 14 + seg_count_x2 + 2 + i*2
+            start_counts.append(struct.unpack('>H', self.data[pos:pos+2])[0])
+            
+        id_deltas = []
+        for i in range(seg_count):
+            pos = offset + 14 + seg_count_x2 + 2 + seg_count_x2 + i*2
+            id_deltas.append(struct.unpack('>h', self.data[pos:pos+2])[0])
+            
+        id_range_offsets = []
+        id_range_offsets_start = offset + 14 + seg_count_x2 * 3 + 2
+        for i in range(seg_count):
+            pos = id_range_offsets_start + i*2
+            id_range_offsets.append(struct.unpack('>H', self.data[pos:pos+2])[0])
+
+        # Map all chars (this is expensive but done once)
+        # To optimize, we could do on-demand, but for <65k chars it's fast enough in Python
+        # Iterate segments
+        for i in range(seg_count):
+            start = start_counts[i]
+            end = end_counts[i]
+            delta = id_deltas[i]
+            range_off = id_range_offsets[i]
+            
+            if start == 0xFFFF: break
+            
+            for char_code in range(start, end + 1):
+                if range_off == 0:
+                    gid = (char_code + delta) & 0xFFFF
+                else:
+                    # Address calculation based on spec
+                    range_off_loc = id_range_offsets_start + i*2
+                    glyph_index_addr = range_off_loc + range_off + (char_code - start) * 2
+                    if glyph_index_addr >= offset + length:
+                        gid = 0
+                    else:
+                        gid = struct.unpack('>H', self.data[glyph_index_addr:glyph_index_addr+2])[0]
+                        if gid != 0:
+                            gid = (gid + delta) & 0xFFFF
+                
+                if gid != 0:
+                    self.cmap[char_code] = gid
+                    self.gid_to_unicode[gid] = char_code
+
+    def get_gid(self, char_code):
+        return self.cmap.get(char_code, 0)
+
+    def get_width(self, gid):
+        if gid < len(self.advance_widths):
+            return self.advance_widths[gid]
+        # Fallback to last known width
+        if self.advance_widths:
+            return self.advance_widths[-1]
+        return 1000 # Fallback default
+
+
 class SimplePDFGenerator:
     """
-    Generador de PDF 1.4 básico usando solo Python standard library.
-    Soporta texto plano, paginación automática y codificación Latin-1.
+    Generador de PDF 1.4 con soporte Unicode real (TTF Embed + Identity-H).
+    Reemplaza la implementación anterior WinAnsi para cumplir P0.6.
     """
     def __init__(self):
         self.buffer = io.BytesIO()
@@ -2119,15 +2374,28 @@ class SimplePDFGenerator:
         self.margin_top = 50
         self.y = self.page_height - self.margin_top
         
-        # Configuración fuente
+        # Fuente TTF
+        self.font_path = "assets/fonts/DejaVuSans.ttf"
+        try:
+            self.font = TTFFont(self.font_path)
+            self.font_loaded = True
+        except Exception as e:
+            # Fallback a modo seguro si falla carga (aunque no debería)
+            print(f"Error cargando fuente: {e}")
+            self.font_loaded = False
+            
         self.font_size = 10
         self.line_height = 12
+        
+        # Tracking de GIDs usados para optimizar PDF (ToUnicode/Widths)
+        self.used_gids = set()
+        self.used_gids.add(0) # .notdef
         
         # Inicializar primera página
         self._init_page_state()
     
     def _init_page_state(self):
-        self.current_content.append(f"BT /F1 {self.font_size} Tf\n".encode('latin-1'))
+        self.current_content.append(f"BT /F1 {self.font_size} Tf\n".encode('ascii'))
 
     def _add_page(self):
         if self.current_content:
@@ -2140,43 +2408,81 @@ class SimplePDFGenerator:
     def set_font_size(self, size: int):
         self.font_size = size
         self.line_height = int(size * 1.2)
-        # Update font in current stream if active
         if self.current_content:
-             self.current_content.append(f"/F1 {self.font_size} Tf\n".encode('latin-1'))
+             self.current_content.append(f"/F1 {self.font_size} Tf\n".encode('ascii'))
 
     def add_text(self, text: str):
-        """Agrega texto manejando saltos de línea y paginación."""
-        # Sanitizar texto para PDF (escape de paréntesis y backslash)
-        # Reemplazar caracteres no latin-1 con ?
-        text = text.encode('latin-1', 'replace').decode('latin-1')
+        """Agrega texto manejando saltos de línea y paginación con métricas reales."""
+        # 1. Convertir texto a GIDs y calcular anchos
+        gids = []
+        words = [] # Lista de (palabra_gids, ancho)
         
-        # Estimación simple de ancho de caracteres (Courier/Helvetica avg ~0.5 em)
-        # Usamos 0.5 * font_size como ancho promedio de caracter
-        char_width = self.font_size * 0.5
-        max_chars_per_line = int((self.page_width - 2 * self.margin_left) / char_width)
-        
+        # Normalización básica: reemplazar newlines y tabs
         lines = text.split('\n')
-        for line in lines:
-            while len(line) > max_chars_per_line:
-                # Buscar último espacio
-                split_idx = line.rfind(' ', 0, max_chars_per_line)
-                if split_idx == -1:
-                    split_idx = max_chars_per_line
+        
+        scale = self.font_size / self.font.units_per_em if self.font_loaded else 0.001
+        max_width = self.page_width - 2 * self.margin_left
+        
+        for line_text in lines:
+            current_line_gids = []
+            current_line_width = 0
+            
+            # Procesar por palabras para wrapping
+            # Split manual preservando espacios no es trivial, simplificamos:
+            # Vamos caracter a caracter acumulando en linea
+            
+            # Mejor aproximación: split por espacio
+            words_in_line = line_text.split(' ')
+            
+            for i, word in enumerate(words_in_line):
+                word_gids = []
+                word_width = 0
                 
-                chunk = line[:split_idx]
-                self._write_line(chunk)
-                line = line[split_idx:].lstrip()
-            self._write_line(line)
+                # Agregar espacio previo si no es la primera palabra
+                if i > 0:
+                    space_gid = self.font.get_gid(32)
+                    self.used_gids.add(space_gid)
+                    w = self.font.get_width(space_gid) * scale
+                    word_gids.append(space_gid)
+                    word_width += w
+                
+                # Caracteres de la palabra
+                for char in word:
+                    gid = self.font.get_gid(ord(char))
+                    self.used_gids.add(gid)
+                    w = self.font.get_width(gid) * scale
+                    word_gids.append(gid)
+                    word_width += w
+                
+                # Check wrap
+                if current_line_width + word_width > max_width and current_line_gids:
+                    # Flush current line
+                    self._write_line_gids(current_line_gids)
+                    current_line_gids = []
+                    current_line_width = 0
+                    # Si era espacio inicial, quitarlo para nueva linea
+                    if word_gids and word_gids[0] == self.font.get_gid(32):
+                        w_space = self.font.get_width(self.font.get_gid(32)) * scale
+                        word_gids.pop(0)
+                        word_width -= w_space
+                
+                current_line_gids.extend(word_gids)
+                current_line_width += word_width
+                
+            self._write_line_gids(current_line_gids)
 
-    def _write_line(self, text: str):
+    def _write_line_gids(self, gids: List[int]):
+        if not gids: return
+        
         if self.y < self.margin_top:
             self._add_page()
             
-        clean_text = text.replace('\\', '\\\\').replace('(', '\\(').replace(')', '\\)')
+        # Convert gids to big-endian hex string
+        hex_str = "".join([f"{gid:04X}" for gid in gids])
+        
         # Posicionar texto: 1 0 0 1 x y Tm
-        # Usaremos coordenadas absolutas para cada línea para control total
-        cmd = f"1 0 0 1 {self.margin_left} {self.y} Tm ({clean_text}) Tj\n"
-        self.current_content.append(cmd.encode('latin-1'))
+        cmd = f"1 0 0 1 {self.margin_left} {self.y} Tm <{hex_str}> Tj\n"
+        self.current_content.append(cmd.encode('ascii'))
         self.y -= self.line_height
 
     def get_pdf_bytes(self) -> bytes:
@@ -2185,8 +2491,8 @@ class SimplePDFGenerator:
             self.current_content.append(b"ET\n")
             self.pages_content.append(b"".join(self.current_content))
         
-        # Si no hay páginas, crear una vacía
         if not self.pages_content:
+            # Pagina vacia dummy
             self.pages_content.append(b"BT /F1 12 Tf ET\n")
 
         self.buffer = io.BytesIO()
@@ -2199,7 +2505,7 @@ class SimplePDFGenerator:
         def start_obj():
             self.obj_count += 1
             self.obj_offsets.append(self.buffer.tell())
-            write(f"{self.obj_count} 0 obj\n".encode('latin-1'))
+            write(f"{self.obj_count} 0 obj\n".encode('ascii'))
             return self.obj_count
 
         def end_obj():
@@ -2208,52 +2514,162 @@ class SimplePDFGenerator:
         # Header
         write(b"%PDF-1.4\n%\xE2\xE3\xCF\xD3\n")
         
-        # IDs reservados
+        # IDs
         catalog_id = 1
         pages_root_id = 2
         font_id = 3
         
         # 1. Catalog
         start_obj() # ID 1
-        write(f"<< /Type /Catalog /Pages {pages_root_id} 0 R >>".encode('latin-1'))
+        write(f"<< /Type /Catalog /Pages {pages_root_id} 0 R >>".encode('ascii'))
         end_obj()
-
-        # Recalculamos IDs:
-        # 1: Catalog
-        # 2: Pages
-        # 3: Font
-        # 4..N: Page Objects
-        # N+1..M: Content Streams
         
         num_pages = len(self.pages_content)
-        first_page_id = 4
+        # IDs dinámicos
+        # 1: Catalog, 2: Pages, 3: Type0 Font, 4: CIDFont, 5: FontDesc, 6: ToUnicode, 7: FontFile
+        cid_font_id = 4
+        font_desc_id = 5
+        to_unicode_id = 6
+        font_file_id = 7
+        
+        first_page_id = 8
         first_content_id = first_page_id + num_pages
         
         # 2. Pages Root
         start_obj() # ID 2
         kids_refs = [f"{first_page_id + i} 0 R" for i in range(num_pages)]
-        write(f"<< /Type /Pages /Kids [{' '.join(kids_refs)}] /Count {num_pages} >>".encode('latin-1'))
+        write(f"<< /Type /Pages /Kids [{' '.join(kids_refs)}] /Count {num_pages} >>".encode('ascii'))
         end_obj()
         
-        # 3. Font
+        # 3. Type0 Font (Composite)
         start_obj() # ID 3
-        write(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+        write(f"""<< 
+/Type /Font 
+/Subtype /Type0 
+/BaseFont /DejaVuSans 
+/Encoding /Identity-H 
+/DescendantFonts [{cid_font_id} 0 R] 
+/ToUnicode {to_unicode_id} 0 R 
+>>""".encode('ascii'))
         end_obj()
         
-        # Page Objects y Content Streams
+        # 4. CIDFontType2
+        start_obj() # ID 4
+        # Construir array de anchos (W)
+        # Formato: [ first_gid [ w1 w2 ... ] ... ]
+        # Para simplificar, agrupamos por rangos consecutivos o dumpamos todo si no es muy grande.
+        # Solo necesitamos anchos de los usados.
+        sorted_gids = sorted(list(self.used_gids))
+        w_array = []
+        if sorted_gids:
+            # Algoritmo simple: bloques consecutivos
+            current_block = []
+            block_start = sorted_gids[0]
+            prev_gid = block_start - 1
+            
+            for gid in sorted_gids:
+                if gid != prev_gid + 1:
+                    # Cerrar bloque anterior
+                    w_array.append(f"{block_start} [{' '.join(map(str, current_block))}]")
+                    current_block = []
+                    block_start = gid
+                
+                current_block.append(self.font.get_width(gid))
+                prev_gid = gid
+            
+            if current_block:
+                w_array.append(f"{block_start} [{' '.join(map(str, current_block))}]")
+        
+        w_str = " ".join(w_array)
+        
+        write(f"""<< 
+/Type /Font 
+/Subtype /CIDFontType2 
+/BaseFont /DejaVuSans 
+/CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> 
+/FontDescriptor {font_desc_id} 0 R 
+/DW 1000 
+/W [{w_str}] 
+>>""".encode('ascii'))
+        end_obj()
+        
+        # 5. FontDescriptor
+        start_obj() # ID 5
+        # Flags 4 = Symbolic
+        write(f"""<< 
+/Type /FontDescriptor 
+/FontName /DejaVuSans 
+/Flags 4 
+/FontBBox [{self.font.bbox[0]} {self.font.bbox[1]} {self.font.bbox[2]} {self.font.bbox[3]}] 
+/ItalicAngle 0 
+/Ascent {self.font.ascent} 
+/Descent {self.font.descent} 
+/CapHeight {self.font.cap_height} 
+/StemV 80 
+/FontFile2 {font_file_id} 0 R 
+>>""".encode('ascii'))
+        end_obj()
+        
+        # 6. ToUnicode CMap
+        start_obj() # ID 6
+        # Generar CMap para copiar texto
+        cmap_lines = []
+        cmap_lines.append("/CIDInit /ProcSet findresource begin")
+        cmap_lines.append("12 dict begin")
+        cmap_lines.append("begincmap")
+        cmap_lines.append("/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def")
+        cmap_lines.append("/CMapName /Adobe-Identity-UCS def")
+        cmap_lines.append("/CMapType 2 def")
+        cmap_lines.append("1 begincodespacerange")
+        cmap_lines.append("<0000> <FFFF>")
+        cmap_lines.append("endcodespacerange")
+        
+        # bfchar lines
+        # Group in chunks of 100
+        chunk_size = 100
+        gids_list = list(self.used_gids)
+        for i in range(0, len(gids_list), chunk_size):
+            chunk = gids_list[i:i+chunk_size]
+            cmap_lines.append(f"{len(chunk)} beginbfchar")
+            for gid in chunk:
+                uni = self.font.gid_to_unicode.get(gid, 0)
+                # UTF-16BE hex
+                uni_hex = f"{uni:04X}"
+                cmap_lines.append(f"<{gid:04X}> <{uni_hex}>")
+            cmap_lines.append("endbfchar")
+            
+        cmap_lines.append("endcmap")
+        cmap_lines.append("CMapName currentdict /CMap defineresource pop")
+        cmap_lines.append("end")
+        cmap_lines.append("end")
+        
+        cmap_data = "\n".join(cmap_lines).encode('ascii')
+        write(f"<< /Length {len(cmap_data)} >>\nstream\n".encode('ascii'))
+        write(cmap_data)
+        write(b"\nendstream")
+        end_obj()
+        
+        # 7. FontFile2 (Embedded TTF)
+        start_obj() # ID 7
+        write(f"<< /Length {len(self.font.data)} >>\nstream\n".encode('ascii'))
+        write(self.font.data)
+        write(b"\nendstream")
+        end_obj()
+        
+        # Pages and Content
         for i, content in enumerate(self.pages_content):
             page_id = first_page_id + i
             content_id = first_content_id + i
             
             # Page Object
-            start_obj() # Should match page_id
-            write(f"<< /Type /Page /Parent {pages_root_id} 0 R /MediaBox [0 0 {self.page_width} {self.page_height}] /Contents {content_id} 0 R /Resources << /Font << /F1 {font_id} 0 R >> >> >>".encode('latin-1'))
+            start_obj() 
+            write(f"<< /Type /Page /Parent {pages_root_id} 0 R /MediaBox [0 0 {self.page_width} {self.page_height}] /Contents {content_id} 0 R /Resources << /Font << /F1 {font_id} 0 R >> >> >>".encode('ascii'))
             end_obj()
             
         for i, content in enumerate(self.pages_content):
             # Content Stream Object
             start_obj() 
-            write(f"<< /Length {len(content)} >>\nstream\n".encode('latin-1'))
+            write(f"<< /Length {len(content)} >>\nstream\n".encode('ascii'))
             write(content)
             write(b"\nendstream")
             end_obj()
@@ -2261,19 +2677,20 @@ class SimplePDFGenerator:
         # Xref
         xref_offset = self.buffer.tell()
         write(b"xref\n")
-        write(f"0 {self.obj_count + 1}\n".encode('latin-1'))
+        write(f"0 {self.obj_count + 1}\n".encode('ascii'))
         write(b"0000000000 65535 f \n")
         for offset in self.obj_offsets:
-            write(f"{offset:010d} 00000 n \n".encode('latin-1'))
+            write(f"{offset:010d} 00000 n \n".encode('ascii'))
             
         # Trailer
         write(b"trailer\n")
-        write(f"<< /Size {self.obj_count + 1} /Root {catalog_id} 0 R >>\n".encode('latin-1'))
+        write(f"<< /Size {self.obj_count + 1} /Root {catalog_id} 0 R >>\n".encode('ascii'))
         write(b"startxref\n")
-        write(f"{xref_offset}\n".encode('latin-1'))
+        write(f"{xref_offset}\n".encode('ascii'))
         write(b"%%EOF\n")
         
         return self.buffer.getvalue()
+
 
 
 # ------------------------------------------------------------------------------
@@ -3024,7 +3441,32 @@ def _generar_bytes_pdf(aceptacion: Dict[str, Any], evento: Dict[str, Any]) -> by
     pdf.add_text(f"Dirección IP: {aceptacion['ip']}")
     pdf.add_text(f"User-Agent: {aceptacion['user_agent']}")
     
-    # Documento de salud
+    # Bloque de evidencias solicitadas (P0.5)
+    firma_status = "PRESENTE" if aceptacion.get('firma_path') else "NO APLICA"
+    
+    doc_status = "NO APLICA"
+    if aceptacion.get('doc_frente_path') and aceptacion.get('doc_dorso_path'):
+        doc_status = "PRESENTE"
+    elif aceptacion.get('doc_frente_path') or aceptacion.get('doc_dorso_path'):
+        doc_status = "PARCIAL"
+        
+    audio_status = "NO APLICA"
+    if aceptacion.get('audio_path'):
+        audio_status = "PRESENTE"
+    elif aceptacion.get('audio_exento'):
+        audio_status = "EXENTO"
+        
+    salud_status = "PRESENTE" if aceptacion.get('salud_doc_path') else "NO APLICA"
+    
+    pdf.add_text("\n")
+    pdf.add_text("EVIDENCIAS ADJUNTAS (VERIFICAR EN SISTEMA):")
+    pdf.add_text(f"- Firma Manuscrita (Fichero): {firma_status}")
+    pdf.add_text(f"- Documento Identidad (Frente/Dorso): {doc_status}")
+    pdf.add_text(f"- Audio Aceptación: {audio_status}")
+    pdf.add_text(f"- Documento Salud: {salud_status}")
+    pdf.add_text("\n")
+    
+    # Documento de salud (detalle extra)
     tiene_salud = "Sí" if aceptacion.get('salud_doc_path') else "No"
     pdf.add_text(f"Documento de salud aportado: {tiene_salud}")
     if aceptacion.get('salud_doc_path'):
@@ -3049,14 +3491,43 @@ def public_descargar_pdf_aceptacion(pdf_token: str):
     # Buscar aceptación por token
     aceptacion = get_aceptacion_por_token(pdf_token)
     if not aceptacion:
+        # Token no existe
+        app_logger.warning(f"Intento de acceso PDF con token inexistente: {pdf_token[:8]}...")
         raise HTTPException(status_code=404, detail="Aceptación no encontrada o token inválido")
         
+    # Validar revocación
+    if aceptacion.get("pdf_token_revoked"):
+        app_logger.warning(f"Intento de acceso PDF con token REVOCADO: id={aceptacion['id']}")
+        raise HTTPException(status_code=404, detail="Aceptación no encontrada o token inválido")
+        
+    # Validar expiración
+    if aceptacion.get("pdf_token_expires_at"):
+        try:
+            # Comparación simple de cadenas ISO si están en UTC y formato correcto
+            now_utc_str = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+            # Normalizamos quitando la Z para comparar objetos si queremos ser muy estrictos, 
+            # pero dado que el sistema usa strings ISO consistentes, la comparación de strings funciona.
+            # Sin embargo, para seguridad, parseamos.
+            expires_at_str = aceptacion["pdf_token_expires_at"].rstrip("Z")
+            expires_at = datetime.fromisoformat(expires_at_str)
+            
+            if datetime.utcnow() > expires_at:
+                app_logger.warning(f"Intento de acceso PDF con token VENCIDO: id={aceptacion['id']}, expires={aceptacion['pdf_token_expires_at']}")
+                raise HTTPException(status_code=404, detail="Aceptación no encontrada o token inválido")
+        except Exception:
+            # Ante duda o error de formato, denegar
+            app_logger.error(f"Error validando expiración token id={aceptacion['id']}")
+            raise HTTPException(status_code=404, detail="Aceptación no encontrada o token inválido")
+
     evento = get_evento(aceptacion["evento_id"])
     if not evento:
         raise HTTPException(status_code=404, detail="Evento asociado no encontrado")
 
     # Generar PDF
     pdf_bytes = _generar_bytes_pdf(aceptacion, evento)
+    
+    # Registrar acceso exitoso
+    registrar_acceso_pdf(aceptacion["id"])
     
     app_logger.info(f"PDF público descargado para aceptacion_id={aceptacion['id']} via token")
     
@@ -3170,79 +3641,8 @@ def admin_exportar_zip(
 
             # AJUSTE 1: Generar PDF legal en memoria e incluirlo
             try:
-                # Verificar consistencia de hash
-                hash_calculado = calcular_hash_sha256(texto_final_template)
-                hash_bd = a['deslinde_hash_sha256']
-                consistencia = "OK" if hash_calculado == hash_bd else "NO COINCIDE"
-                
-                if consistencia != "OK":
-                     app_logger.warning(f"Inconsistencia de hash en exportación ZIP - AceptacionID: {a['id']}. BD: {hash_bd}, Calc: {hash_calculado}")
-
-                # Generar PDF
-                pdf = SimplePDFGenerator()
-                
-                # Encabezado
-                pdf.set_font_size(14)
-                pdf.add_text("ACEPTACIÓN DE DESLINDE DE RESPONSABILIDAD")
-                pdf.set_font_size(10)
-                pdf.add_text(f"ID Aceptación: {a['id']}")
-                pdf.add_text(f"Fecha y hora de generación del documento (UTC): {datetime.utcnow().replace(microsecond=0).isoformat()}Z")
-                pdf.add_text("\n")
-                
-                # Evento
-                pdf.set_font_size(12)
-                pdf.add_text("EVENTO")
-                pdf.set_font_size(10)
-                pdf.add_text(f"Nombre: {evento['nombre']}")
-                pdf.add_text(f"Fecha: {evento['fecha']}")
-                pdf.add_text(f"Organizador: {evento['organizador']}")
-                pdf.add_text("\n")
-                
-                # Participante
-                pdf.set_font_size(12)
-                pdf.add_text("PARTICIPANTE")
-                pdf.set_font_size(10)
-                pdf.add_text(f"Nombre: {a['nombre_participante']}")
-                pdf.add_text(f"Documento: {a['documento']}")
-                pdf.add_text("\n")
-                
-                # Texto Legal
-                pdf.set_font_size(12)
-                pdf.add_text("TEXTO DEL DESLINDE ACEPTADO")
-                pdf.add_text("-" * 60)
-                pdf.set_font_size(9)
-                pdf.add_text(texto_final_template)
-                pdf.add_text("-" * 60)
-                pdf.add_text("\n")
-                
-                # Auditoría
-                pdf.set_font_size(12)
-                pdf.add_text("AUDITORÍA TÉCNICA")
-                pdf.set_font_size(10)
-                pdf.add_text(f"Hash SHA256 Deslinde (BD): {hash_bd}")
-                pdf.add_text(f"Hash SHA256 Calculado: {hash_calculado}")
-                pdf.add_text(f"Consistencia del hash: {consistencia}")
-                pdf.add_text(f"Fecha Aceptación (UTC): {a['fecha_hora']}")
-                pdf.add_text(f"Dirección IP: {a['ip']}")
-                pdf.add_text(f"User-Agent: {a['user_agent']}")
-                
-                # Documento de salud
-                tiene_salud = "Sí" if a.get('salud_doc_path') else "No"
-                pdf.add_text(f"Documento de salud aportado: {tiene_salud}")
-                if a.get('salud_doc_path'):
-                    pdf.add_text(f"Tipo de documento: {a.get('salud_doc_tipo', 'No especificado')}")
-                
-                flags = []
-                if a.get('audio_exento'): flags.append("AUDIO_EXENTO")
-                if a.get('firma_asistida'): flags.append("FIRMA_ASISTIDA")
-                if flags:
-                    pdf.add_text(f"Flags: {', '.join(flags)}")
-                
-                pdf.add_text("\n")
-                pdf.set_font_size(8)
-                pdf.add_text("Documento generado automáticamente por el sistema EncarreraOK.")
-                
-                pdf_bytes = pdf.get_pdf_bytes()
+                # Usar el generador centralizado para consistencia (incluye auditoría P0.5)
+                pdf_bytes = _generar_bytes_pdf(a, evento)
                 
                 # Escribir PDF al ZIP
                 pdf_arcname = f"{folder_name}/aceptacion.pdf"
@@ -3483,6 +3883,36 @@ def admin_aceptacion_detalle(aceptacion_id: int, username: str = Depends(get_cur
     return HTMLResponse(content=html)
 
 
+@app.post("/admin/aceptaciones/{aceptacion_id}/revocar_token", response_class=HTMLResponse)
+def admin_revocar_token(
+    aceptacion_id: int,
+    username: str = Depends(get_current_username)
+) -> HTMLResponse:
+    """
+    Revoca manualmente el token PDF de una aceptación.
+    """
+    aceptacion = get_aceptacion_detalle(aceptacion_id)
+    if not aceptacion:
+        raise HTTPException(status_code=404, detail="Aceptación no encontrada")
+        
+    success = revocar_pdf_token(aceptacion_id)
+    if success:
+        app_logger.info(f"Token PDF revocado manualmente por admin: id={aceptacion_id}, user={username}")
+        msg = "Token revocado correctamente."
+    else:
+        app_logger.warning(f"Fallo al revocar token PDF: id={aceptacion_id}")
+        msg = "No se pudo revocar el token o ya estaba revocado."
+
+    return HTMLResponse(
+        content=f"""
+        <script>
+            alert("{msg}");
+            window.location.href = "/admin/aceptaciones/{aceptacion_id}";
+        </script>
+        """
+    )
+
+
 # ------------------------------------------------------------------------------
 # Ejecutable local (opcional). En producción se usa systemd + uvicorn.
 # ------------------------------------------------------------------------------
@@ -3586,7 +4016,15 @@ if __name__ == "__main__":
 # NOTAS:
 #   - Si /var/log/encarreraok no tiene permisos, el log se crea en el directorio actual
 #   - Los logs incluyen timestamp, nivel, y mensaje estructurado
-#   - Las excepciones incluyen stacktrace completo
+#   - Los excepciones incluyen stacktrace completo
 #   - Los paths verificados en detalle usan os.path.exists() en tiempo real
-#
 
+# ==============================================================================
+# BACKLOG DE SEGURIDAD / LEGALES
+# ==============================================================================
+# - Rate limiting en endpoint público (Nginx / middleware)
+# - Firma temporal externa (timestamp authority)
+# - Hash anclado externo (blockchain / TSA)
+# - Descarga con watermark opcional
+# - Política de retención configurable por evento
+# ==============================================================================
