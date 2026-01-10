@@ -172,726 +172,532 @@ templates_env = Environment(
             <html lang="es">
             <head>
                 <meta charset="utf-8" />
-                <meta name="viewport" content="width=device-width, initial-scale=1" />
+                <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0" />
                 <title>{{ evento.nombre }} - Deslinde</title>
                 <style>
-                    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 24px; }
-                    .card { max-width: 640px; margin: 0 auto; padding: 24px; border: 1px solid #ddd; border-radius: 8px; }
-                    label { display: block; margin: 12px 0 4px; }
-                    input[type="text"] { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
-                    .checkbox { margin-top: 16px; }
-                    .btn { margin-top: 16px; padding: 10px 16px; border: none; background: #0d6efd; color: white; border-radius: 4px; cursor: pointer; }
-                    .btn:disabled { background: #aaa; cursor: not-allowed; }
-                    .muted { color: #666; font-size: 0.95em; }
-                    .deslinde { white-space: pre-wrap; background: #fafafa; border: 1px solid #eee; padding: 12px; border-radius: 6px; margin-top: 12px; }
+                    :root {
+                        --primary-color: #0d6efd;
+                        --error-color: #dc3545;
+                        --success-color: #198754;
+                        --warning-bg: #fff3cd;
+                        --warning-border: #ffc107;
+                        --border-radius: 8px;
+                        --spacing: 16px;
+                    }
+                    body {
+                        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+                        margin: 0;
+                        padding: 16px;
+                        background-color: #f8f9fa;
+                        color: #212529;
+                        line-height: 1.5;
+                    }
+                    .card {
+                        background: white;
+                        max-width: 640px;
+                        margin: 0 auto;
+                        padding: 24px;
+                        border-radius: var(--border-radius);
+                        box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+                    }
+                    h1 { font-size: 1.5rem; margin: 0 0 8px; color: #333; }
+                    .event-meta { color: #6c757d; font-size: 0.9rem; margin-bottom: 20px; }
                     
-                    /* Firma Canvas */
-                    .signature-pad { border: 1px solid #ccc; border-radius: 4px; touch-action: none; background: #fff; width: 100%; height: 200px; margin-top: 8px; }
-                    .signature-container { margin-top: 16px; }
-                    .btn-clear { background: #6c757d; font-size: 0.9em; padding: 6px 12px; margin-top: 4px; }
+                    /* Deslinde Box */
+                    .deslinde-box {
+                        background: #f8f9fa;
+                        border: 1px solid #dee2e6;
+                        padding: 16px;
+                        border-radius: var(--border-radius);
+                        max-height: 300px;
+                        overflow-y: auto;
+                        white-space: pre-wrap;
+                        font-size: 0.9rem;
+                        margin-bottom: 24px;
+                    }
+
+                    /* Form Elements */
+                    .form-group { margin-bottom: 20px; }
+                    label { display: block; margin-bottom: 6px; font-weight: 500; }
+                    input[type="text"], select {
+                        width: 100%;
+                        padding: 10px 12px;
+                        border: 1px solid #ced4da;
+                        border-radius: 6px;
+                        font-size: 1rem;
+                        box-sizing: border-box; /* Fix width overflow */
+                    }
+                    input[type="text"]:focus, select:focus {
+                        border-color: var(--primary-color);
+                        outline: 0;
+                        box-shadow: 0 0 0 3px rgba(13,110,253,0.25);
+                    }
+
+                    /* File Inputs */
+                    .file-upload-container {
+                        border: 2px dashed #dee2e6;
+                        padding: 16px;
+                        border-radius: var(--border-radius);
+                        text-align: center;
+                        transition: border-color 0.2s;
+                    }
+                    .file-upload-container:hover { border-color: var(--primary-color); }
+                    .file-hint { font-size: 0.8rem; color: #6c757d; margin-top: 4px; }
                     
-                    /* Documentos */
-                    .doc-container { margin-top: 16px; border: 1px solid #eee; padding: 12px; border-radius: 6px; background: #fdfdfd; }
-                    .doc-container h3 { margin-top: 0; font-size: 1.1em; color: #444; }
-                    .file-input-group { margin-bottom: 12px; }
-                    .file-input-group label { display: block; margin-bottom: 4px; font-weight: bold; }
-                    .file-hint { font-size: 0.85em; color: #777; margin-top: 2px; }
-                    .file-feedback { font-size: 0.85em; margin-top: 4px; padding: 6px; border-radius: 4px; }
-                    .file-feedback.warning { background: #fff3cd; color: #856404; border: 1px solid #ffc107; }
-                    .file-feedback.info { background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
-                    .file-feedback.error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
-                    
-                    /* Audio */
-                    .audio-container { margin-top: 16px; border: 1px solid #eee; padding: 12px; border-radius: 6px; background: #fdfdfd; }
-                    .audio-controls { display: flex; gap: 8px; margin-top: 8px; align-items: center; flex-wrap: wrap; }
-                    .audio-status { margin-left: 8px; font-size: 0.9em; color: #555; }
-                    .audio-text { font-style: italic; background: #eee; padding: 8px; border-radius: 4px; margin-bottom: 8px; color: #333; font-size: 0.95em; }
-                    .btn-record { background: #d9534f; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; }
-                    .btn-stop { background: #333; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; }
-                    .btn-play { background: #0d6efd; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; }
-                    .btn-reset { background: #6c757d; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; }
-                    .btn-record:disabled, .btn-stop:disabled, .btn-play:disabled, .btn-reset:disabled { background: #ccc; cursor: not-allowed; }
+                    /* Feedback Messages */
+                    .feedback {
+                        margin-top: 8px;
+                        padding: 8px 12px;
+                        border-radius: 6px;
+                        font-size: 0.9rem;
+                        display: none;
+                    }
+                    .feedback.error { background: #f8d7da; color: #842029; border: 1px solid #f5c2c7; }
+                    .feedback.info { background: #cff4fc; color: #055160; border: 1px solid #b6effb; }
+                    .feedback.warning { background: var(--warning-bg); color: #664d03; border: 1px solid var(--warning-border); }
+
+                    /* Signature Pad */
+                    .signature-pad-wrapper {
+                        border: 1px solid #ced4da;
+                        border-radius: var(--border-radius);
+                        overflow: hidden;
+                        background: #fff;
+                        touch-action: none;
+                        position: relative;
+                    }
+                    canvas { display: block; width: 100%; height: 200px; }
+                    .signature-tools { margin-top: 8px; display: flex; justify-content: space-between; align-items: center; }
+
+                    /* Audio Controls */
+                    .audio-recorder {
+                        background: #f8f9fa;
+                        padding: 16px;
+                        border-radius: var(--border-radius);
+                        border: 1px solid #dee2e6;
+                    }
+                    .audio-script {
+                        font-style: italic;
+                        color: #495057;
+                        background: white;
+                        padding: 12px;
+                        border-radius: 6px;
+                        margin-bottom: 12px;
+                        border-left: 3px solid var(--primary-color);
+                    }
+                    .btn-group { display: flex; gap: 8px; flex-wrap: wrap; }
+
+                    /* Buttons */
+                    .btn {
+                        display: inline-flex;
+                        align-items: center;
+                        justify-content: center;
+                        padding: 10px 20px;
+                        font-weight: 500;
+                        border-radius: 6px;
+                        border: none;
+                        cursor: pointer;
+                        font-size: 1rem;
+                        transition: all 0.2s;
+                    }
+                    .btn-primary { background: var(--primary-color); color: white; width: 100%; }
+                    .btn-primary:hover { background: #0b5ed7; }
+                    .btn-secondary { background: #6c757d; color: white; }
+                    .btn-danger { background: var(--error-color); color: white; }
+                    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+                    .btn-sm { padding: 6px 12px; font-size: 0.875rem; width: auto; }
+
+                    /* Checkboxes */
+                    .checkbox-wrapper {
+                        display: flex;
+                        gap: 12px;
+                        align-items: flex-start;
+                        margin: 16px 0;
+                        padding: 12px;
+                        background: #f8f9fa;
+                        border-radius: 6px;
+                    }
+                    .checkbox-wrapper input[type="checkbox"] {
+                        margin-top: 4px;
+                        width: 18px;
+                        height: 18px;
+                    }
+
+                    /* Mobile Optimizations */
+                    @media (max-width: 576px) {
+                        body { padding: 12px; }
+                        .card { padding: 16px; }
+                        h1 { font-size: 1.25rem; }
+                        .btn-group { width: 100%; }
+                        .btn-group .btn { flex: 1; }
+                    }
                 </style>
             </head>
             <body>
                 <div class="card">
-                    <h1>{{ evento.nombre }}</h1>
-                    <p class="muted">
-                        Fecha: {{ evento.fecha|fecha_ddmmaaaa }}<br/>
-                        Organizador: {{ evento.organizador }}
-                    </p>
-                    <div class="deslinde">
+                    <header>
+                        <h1>{{ evento.nombre }}</h1>
+                        <div class="event-meta">
+                            📅 {{ evento.fecha|fecha_ddmmaaaa }} • 👤 {{ evento.organizador }}
+                        </div>
+                    </header>
+
+                    <div class="deslinde-box">
                         {{ deslinde_texto }}
                     </div>
+
                     {% if not evento.activo %}
-                        <p>Este evento no está activo.</p>
+                        <div class="feedback error" style="display:block; text-align:center;">
+                            ⛔ Este evento no está activo o ha finalizado.
+                        </div>
                     {% else %}
                         <form method="post" action="{{ request.url.path }}" id="acceptForm" enctype="multipart/form-data">
-                            <label for="nombre_participante">Nombre del participante</label>
-                            <input type="text" id="nombre_participante" name="nombre_participante" required />
+                            
+                            <!-- Datos Personales -->
+                            <div class="form-group">
+                                <label for="nombre_participante">Nombre Completo</label>
+                                <input type="text" id="nombre_participante" name="nombre_participante" required placeholder="Tal como aparece en su documento" autocomplete="name" />
+                            </div>
 
-                            <label for="documento">Documento</label>
-                            <input type="text" id="documento" name="documento" required />
+                            <div class="form-group">
+                                <label for="documento">N° de Documento</label>
+                                <input type="text" id="documento" name="documento" required placeholder="DNI, Pasaporte o Cédula" />
+                            </div>
 
+                            <!-- Documento de Identidad -->
                             {% if evento.req_documento %}
-                            <div class="doc-container">
+                            <div class="form-group">
                                 <h3>Documento de Identidad</h3>
-                                <div class="file-input-group">
-                                    <label for="doc_frente">Frente del documento</label>
-                                    <input type="file" id="doc_frente" name="doc_frente" accept="image/*" required>
-                                    <div class="file-hint">Foto clara del frente (cámara o archivo). Máx. {{ MAX_IMAGE_DOC_MB }} MB</div>
-                                    <div id="doc_frente_feedback" class="file-feedback" style="display:none;"></div>
-                                    <div id="doc_frente_mobile_tip" class="file-feedback info" style="display:none;">
-                                        📱 <strong>Modo documento:</strong> Use la cámara trasera para mejor calidad. Asegúrese de que el documento esté bien iluminado y completo.
-                                    </div>
+                                
+                                <div class="file-upload-container" style="margin-bottom: 12px;">
+                                    <label for="doc_frente">Frente del Documento</label>
+                                    <input type="file" id="doc_frente" name="doc_frente" accept="image/*" required style="width:100%">
+                                    <div class="file-hint">📸 Foto clara y legible (Máx. {{ MAX_IMAGE_DOC_MB }} MB)</div>
+                                    <div id="doc_frente_feedback" class="feedback"></div>
                                 </div>
-                                <div class="file-input-group">
-                                    <label for="doc_dorso">Dorso del documento</label>
-                                    <input type="file" id="doc_dorso" name="doc_dorso" accept="image/*" required>
-                                    <div class="file-hint">Foto clara del dorso (cámara o archivo). Máx. {{ MAX_IMAGE_DOC_MB }} MB</div>
-                                    <div id="doc_dorso_feedback" class="file-feedback" style="display:none;"></div>
-                                    <div id="doc_dorso_mobile_tip" class="file-feedback info" style="display:none;">
-                                        📱 <strong>Modo documento:</strong> Use la cámara trasera para mejor calidad. Asegúrese de que el documento esté bien iluminado y completo.
-                                    </div>
+
+                                <div class="file-upload-container">
+                                    <label for="doc_dorso">Dorso del Documento</label>
+                                    <input type="file" id="doc_dorso" name="doc_dorso" accept="image/*" required style="width:100%">
+                                    <div class="file-hint">📸 Foto clara y legible (Máx. {{ MAX_IMAGE_DOC_MB }} MB)</div>
+                                    <div id="doc_dorso_feedback" class="feedback"></div>
                                 </div>
                             </div>
-                            <script>
-                                (function() {
-                                    function isMobile() {
-                                        return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
-                                               (window.innerWidth <= 768);
-                                    }
-
-                                    if (isMobile()) {
-                                        var frenteTip = document.getElementById('doc_frente_mobile_tip');
-                                        var dorsoTip = document.getElementById('doc_dorso_mobile_tip');
-                                        if (frenteTip) frenteTip.style.display = 'block';
-                                        if (dorsoTip) dorsoTip.style.display = 'block';
-                                    }
-
-                                    var MAX_IMAGE_BYTES = {{ MAX_IMAGE_DOC_MB }} * 1024 * 1024;
-                                    var COMPRESS_THRESHOLD_BYTES = {{ MAX_IMAGE_COMPRESS_THRESHOLD_MB }} * 1024 * 1024;
-
-                                    function showFeedback(inputId, message, type) {
-                                        var feedback = document.getElementById(inputId + '_feedback');
-                                        if (feedback) {
-                                            feedback.textContent = message;
-                                            feedback.className = 'file-feedback ' + type;
-                                            feedback.style.display = 'block';
-                                        }
-                                    }
-
-                                    function hideFeedback(inputId) {
-                                        var feedback = document.getElementById(inputId + '_feedback');
-                                        if (feedback) {
-                                            feedback.style.display = 'none';
-                                        }
-                                    }
-
-                                    function validateFile(input, inputId) {
-                                        if (input.files && input.files[0]) {
-                                            var size = input.files[0].size;
-                                            if (size > MAX_IMAGE_BYTES) {
-                                                showFeedback(inputId, "⚠️ Imagen demasiado grande. Máximo permitido: {{ MAX_IMAGE_DOC_MB }} MB.", "error");
-                                                input.value = "";
-                                                return false;
-                                            } else if (size > COMPRESS_THRESHOLD_BYTES) {
-                                                showFeedback(inputId, "ℹ️ Imagen grande. Se comprimirá automáticamente al enviar.", "info");
-                                            } else {
-                                                hideFeedback(inputId);
-                                            }
-                                        }
-                                        return true;
-                                    }
-                                    
-                                    var form = document.getElementById('acceptForm');
-                                    if (form) {
-                                        form.addEventListener('submit', function(e) {
-                                            var frente = document.getElementById('doc_frente');
-                                            var dorso = document.getElementById('doc_dorso');
-                                            var valid = true;
-                                            
-                                            if (frente && frente.files && frente.files[0]) {
-                                                if (frente.files[0].size > MAX_IMAGE_BYTES) {
-                                                    showFeedback('doc_frente', "⚠️ El frente es demasiado grande. Máximo: {{ MAX_IMAGE_DOC_MB }} MB.", "error");
-                                                    valid = false;
-                                                }
-                                            }
-                                            
-                                            if (dorso && dorso.files && dorso.files[0]) {
-                                                if (dorso.files[0].size > MAX_IMAGE_BYTES) {
-                                                    showFeedback('doc_dorso', "⚠️ El dorso es demasiado grande. Máximo: {{ MAX_IMAGE_DOC_MB }} MB.", "error");
-                                                    valid = false;
-                                                }
-                                            }
-
-                                            if (!valid) {
-                                                e.preventDefault();
-                                                alert("Por favor corrija los errores antes de enviar. Algunos archivos exceden el tamaño máximo permitido.");
-                                                return false;
-                                            }
-                                        });
-                                    }
-
-                                    var docFrente = document.getElementById('doc_frente');
-                                    var docDorso = document.getElementById('doc_dorso');
-                                    
-                                    if (docFrente) {
-                                        docFrente.addEventListener('change', function() { validateFile(this, 'doc_frente'); });
-                                    }
-                                    if (docDorso) {
-                                        docDorso.addEventListener('change', function() { validateFile(this, 'doc_dorso'); });
-                                    }
-                                })();
-                            </script>
                             {% endif %}
 
+                            <!-- Salud -->
                             {% if evento.req_salud %}
-                            <div class="doc-container">
-                                <h3>Documento de salud (requerido)</h3>
-                                <div class="file-input-group">
-                                    <label for="salud_doc_tipo">Tipo de documento de salud</label>
-                                    <select id="salud_doc_tipo" name="salud_doc_tipo" required style="width: 100%; padding: 8px; margin-bottom: 10px; border: 1px solid #ccc; border-radius: 4px;">
-                                        <option value="" disabled selected>Seleccione una opción</option>
+                            <div class="form-group">
+                                <h3>Documento de Salud</h3>
+                                
+                                <div style="margin-bottom: 12px;">
+                                    <label for="salud_doc_tipo">Tipo de Documento</label>
+                                    <select id="salud_doc_tipo" name="salud_doc_tipo" required>
+                                        <option value="" disabled selected>Seleccione una opción...</option>
                                         <option value="carne_salud">Carné de salud</option>
                                         <option value="certificado_aptitud">Certificado de aptitud física</option>
                                         <option value="otro">Otro documento equivalente</option>
                                     </select>
                                 </div>
-                                <div class="file-input-group">
-                                    <label for="salud_doc">Documento de salud</label>
-                                    <input type="file" id="salud_doc" name="salud_doc" accept="image/*" required>
-                                    <div class="file-hint">Puede subir o fotografiar su carné de salud, certificado de aptitud física u otro documento que acredite su estado de salud. Máx. {{ MAX_IMAGE_DOC_MB }} MB</div>
-                                    <div id="salud_doc_feedback" class="file-feedback" style="display:none;"></div>
-                                    <div id="salud_doc_mobile_tip" class="file-feedback info" style="display:none;">
-                                        📱 <strong>Modo documento:</strong> Use la cámara trasera para mejor calidad. Asegúrese de que el documento esté bien iluminado y completo.
+
+                                <div class="file-upload-container">
+                                    <label for="salud_doc">Archivo de Salud</label>
+                                    <input type="file" id="salud_doc" name="salud_doc" accept="image/*" required style="width:100%">
+                                    <div class="file-hint">📸 Foto del certificado vigente (Máx. {{ MAX_IMAGE_DOC_MB }} MB)</div>
+                                    <div id="salud_doc_feedback" class="feedback"></div>
+                                </div>
+                            </div>
+                            {% endif %}
+
+                            <!-- Audio -->
+                            {% if evento.req_audio %}
+                            <div class="form-group">
+                                <h3>Confirmación de Voz</h3>
+                                <div class="audio-recorder">
+                                    <div class="checkbox-wrapper" style="margin-top:0; border:1px solid #ffeeba; background:#fff3cd;">
+                                        <input type="checkbox" id="audio_exento" name="audio_exento" value="1" onchange="toggleAudioRequirement()">
+                                        <label for="audio_exento" style="font-size:0.9rem; margin:0;">
+                                            No puedo grabar audio por imposibilidad física
+                                        </label>
+                                    </div>
+
+                                    <div id="audio_container_inner">
+                                        <p style="margin-top:0; font-size:0.9rem;">Lea en voz alta el siguiente texto:</p>
+                                        <div class="audio-script">
+                                            "Yo, <span id="nombre-script" style="font-weight:bold">[Su Nombre]</span>, declaro haber leído y aceptado el deslinde de responsabilidad."
+                                        </div>
+
+                                        <div class="btn-group">
+                                            <button type="button" class="btn btn-danger btn-sm" id="btn-record">🔴 Grabar</button>
+                                            <button type="button" class="btn btn-secondary btn-sm" id="btn-stop" disabled>⏹ Detener</button>
+                                            <button type="button" class="btn btn-primary btn-sm" id="btn-play" disabled>▶ Escuchar</button>
+                                            <button type="button" class="btn btn-secondary btn-sm" id="btn-reset" disabled>🔄 Regrabar</button>
+                                        </div>
+                                        <div id="audio-status" style="margin-top:8px; font-size:0.85rem; color:#666;">Listo para grabar</div>
+                                        <div id="audio-feedback" class="feedback"></div>
+                                        
+                                        <!-- Elementos ocultos -->
+                                        <audio id="audio-preview" style="display:none"></audio>
+                                        <input type="hidden" name="audio_base64" id="audio_base64">
                                     </div>
                                 </div>
                             </div>
-                            <script>
-                                (function() {
-                                    function isMobile() {
-                                        return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
-                                               (window.innerWidth <= 768);
-                                    }
-
-                                    if (isMobile()) {
-                                        var saludTip = document.getElementById('salud_doc_mobile_tip');
-                                        if (saludTip) saludTip.style.display = 'block';
-                                    }
-
-                                    var MAX_IMAGE_BYTES = {{ MAX_IMAGE_DOC_MB }} * 1024 * 1024;
-                                    var COMPRESS_THRESHOLD_BYTES = {{ MAX_IMAGE_COMPRESS_THRESHOLD_MB }} * 1024 * 1024;
-
-                                    function showFeedback(inputId, message, type) {
-                                        var feedback = document.getElementById(inputId + '_feedback');
-                                        if (feedback) {
-                                            feedback.textContent = message;
-                                            feedback.className = 'file-feedback ' + type;
-                                            feedback.style.display = 'block';
-                                        }
-                                    }
-
-                                    function hideFeedback(inputId) {
-                                        var feedback = document.getElementById(inputId + '_feedback');
-                                        if (feedback) {
-                                            feedback.style.display = 'none';
-                                        }
-                                    }
-
-                                    function validateFile(input, inputId) {
-                                        if (input.files && input.files[0]) {
-                                            var size = input.files[0].size;
-                                            if (size > MAX_IMAGE_BYTES) {
-                                                showFeedback(inputId, "⚠️ Imagen demasiado grande. Máximo permitido: {{ MAX_IMAGE_DOC_MB }} MB.", "error");
-                                                input.value = "";
-                                                return false;
-                                            } else if (size > COMPRESS_THRESHOLD_BYTES) {
-                                                showFeedback(inputId, "ℹ️ Imagen grande. Se comprimirá automáticamente al enviar.", "info");
-                                            } else {
-                                                hideFeedback(inputId);
-                                            }
-                                        }
-                                        return true;
-                                    }
-
-                                    var form = document.getElementById('acceptForm');
-                                    if (form) {
-                                        form.addEventListener('submit', function(e) {
-                                            var saludDoc = document.getElementById('salud_doc');
-                                            if (saludDoc && saludDoc.files && saludDoc.files[0]) {
-                                                if (saludDoc.files[0].size > MAX_IMAGE_BYTES) {
-                                                    showFeedback('salud_doc', "⚠️ El documento de salud es demasiado grande. Máximo: {{ MAX_IMAGE_DOC_MB }} MB. Por favor seleccione otro archivo.", "error");
-                                                    e.preventDefault();
-                                                    alert("Por favor corrija los errores antes de enviar. Algunos archivos exceden el tamaño máximo permitido.");
-                                                    return false;
-                                                }
-                                            }
-                                        });
-                                    }
-
-                                    var saludDoc = document.getElementById('salud_doc');
-                                    if (saludDoc) {
-                                        saludDoc.addEventListener('change', function() { validateFile(this, 'salud_doc'); });
-                                    }
-                                })();
-                            </script>
                             {% endif %}
 
-                            {% if evento.req_audio %}
-                            <div class="audio-container">
-                                <h3>Audio de aceptación (requerido)</h3>
-                                <p>Por favor, grábese leyendo el siguiente texto:</p>
-                                <div style="margin-bottom: 15px;">
-                                    <label style="display: flex; align-items: center; gap: 8px; font-weight: bold; background: #fff3cd; padding: 10px; border-radius: 4px; border: 1px solid #ffeeba;">
-                                        <input type="checkbox" id="audio_exento" name="audio_exento" value="1" onchange="toggleAudioRequirement()">
-                                        No puedo grabar audio por imposibilidad física
-                                    </label>
-                                </div>
-                                <div class="audio-text">
-                                    "Yo, <span id="nombre-script">[Nombre]</span>, declaro haber leído y aceptado el deslinde de responsabilidad."
-                                </div>
-                                
-                                <div class="audio-controls">
-                                    <button type="button" class="btn-record" id="btn-record">Grabar</button>
-                                    <button type="button" class="btn-stop" id="btn-stop" disabled>Detener</button>
-                                    <button type="button" class="btn-play" id="btn-play" disabled>Escuchar</button>
-                                    <button type="button" class="btn-reset" id="btn-reset" disabled>Regrabar</button>
-                                    <span class="audio-status" id="audio-status">Listo para grabar</span>
-                                </div>
-                                <div id="audio-feedback" class="file-feedback" style="display:none;"></div>
-                                <div id="audio_mobile_tip" class="file-feedback info" style="display:none;">
-                                    📱 <strong>Nota mobile:</strong> En algunos dispositivos móviles (especialmente iOS) el audio puede no reproducirse localmente, pero la grabación es válida y se guardará correctamente.
-                                </div>
-                                <audio id="audio-preview" style="display:none"></audio>
-                                <input type="hidden" name="audio_base64" id="audio_base64">
-                            </div>
-                            <script>
-                            (function() {
-                                // Detección mobile para mostrar tip de audio
-                                function isMobile() {
-                                    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
-                                           (window.innerWidth <= 768);
-                                }
-                                
-                                if (isMobile()) {
-                                    var audioTip = document.getElementById('audio_mobile_tip');
-                                    if (audioTip) audioTip.style.display = 'block';
-                                }
-                                
-                                var btnRecord = document.getElementById('btn-record');
-                                var btnStop = document.getElementById('btn-stop');
-                                var btnPlay = document.getElementById('btn-play');
-                                var btnReset = document.getElementById('btn-reset');
-                                var status = document.getElementById('audio-status');
-                                var audioPreview = document.getElementById('audio-preview');
-                                var hiddenInput = document.getElementById('audio_base64');
-                                var nameInput = document.getElementById('nombre_participante');
-                                var nameScript = document.getElementById('nombre-script');
-                                
-                                // Actualizar nombre en guión
-                                if(nameInput) {
-                                    nameInput.addEventListener('input', function() {
-                                        nameScript.textContent = this.value || "[Nombre]";
-                                    });
-                                }
-
-                                // Validación tamaño audio (Frontend)
-                                var MAX_AUDIO_BYTES = {{ MAX_AUDIO_MB }} * 1024 * 1024;
-                                
-                                function showAudioFeedback(message, type) {
-                                    var feedback = document.getElementById('audio-feedback');
-                                    if (feedback) {
-                                        feedback.textContent = message;
-                                        feedback.className = 'file-feedback ' + type;
-                                        feedback.style.display = 'block';
-                                    }
-                                }
-                                
-                                function hideAudioFeedback() {
-                                    var feedback = document.getElementById('audio-feedback');
-                                    if (feedback) {
-                                        feedback.style.display = 'none';
-                                    }
-                                }
-
-                                var mediaRecorder;
-                                var audioChunks = [];
-                                var audioBlob = null;
-                                var stream = null;
-                                var canPlayback = false; // Para detectar si el audio es reproducible
-
-                                async function startRecording() {
-                                    try {
-                                        hideAudioFeedback();
-                                        // Detectar soporte de codecs
-                                        var mimeType = 'audio/webm';
-                                        var codecOptions = ['audio/webm;codecs=opus', 'audio/webm'];
-                                        var selectedMime = null;
-                                        
-                                        for (var i = 0; i < codecOptions.length; i++) {
-                                            if (MediaRecorder.isTypeSupported(codecOptions[i])) {
-                                                selectedMime = codecOptions[i];
-                                                break;
-                                            }
-                                        }
-                                        
-                                        if (!selectedMime) {
-                                            selectedMime = 'audio/webm'; // Fallback
-                                        }
-                                        
-                                        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                                        mediaRecorder = new MediaRecorder(stream, {
-                                            mimeType: selectedMime
-                                        });
-                                        mediaRecorder.start();
-                                        
-                                        audioChunks = [];
-                                        mediaRecorder.addEventListener("dataavailable", event => {
-                                            audioChunks.push(event.data);
-                                        });
-
-                                        mediaRecorder.addEventListener("stop", () => {
-                                            var mimeType = mediaRecorder.mimeType || 'audio/webm';
-                                            audioBlob = new Blob(audioChunks, { type: mimeType });
-                                            
-                                            // Validar tamaño antes de procesar
-                                            if (audioBlob.size > MAX_AUDIO_BYTES) {
-                                                showAudioFeedback("⚠️ Audio demasiado grande (máx. {{ MAX_AUDIO_MB }} MB). Por favor, intente ser más breve.", "error");
-                                                audioBlob = null;
-                                                hiddenInput.value = "";
-                                                audioPreview.src = "";
-                                                status.textContent = "Audio demasiado grande. Regrabe.";
-                                                status.style.color = "red";
-                                                canPlayback = false;
-                                                
-                                                btnRecord.disabled = true;
-                                                btnStop.disabled = true;
-                                                btnPlay.disabled = true;
-                                                btnReset.disabled = false;
-                                                return;
-                                            }
-
-                                            // Intentar reproducir para detectar compatibilidad (especialmente iOS)
-                                            var audioUrl = URL.createObjectURL(audioBlob);
-                                            audioPreview.src = audioUrl;
-                                            
-                                            // Detectar si es iOS
-                                            var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
-                                            
-                                            // Verificar si el audio puede reproducirse
-                                            audioPreview.oncanplay = function() {
-                                                canPlayback = true;
-                                                hideAudioFeedback();
-                                            };
-                                            
-                                            audioPreview.onerror = function() {
-                                                canPlayback = false;
-                                                if (isIOS) {
-                                                    showAudioFeedback("ℹ️ Audio grabado correctamente. En iOS no se puede previsualizar, pero la grabación es válida.", "info");
-                                                } else {
-                                                    showAudioFeedback("ℹ️ Audio grabado. Si no se escucha, la grabación sigue siendo válida.", "info");
-                                                }
-                                            };
-                                            
-                                            // Forzar carga
-                                            audioPreview.load();
-                                            
-                                            // Convert to Base64 con el mimeType correcto
-                                            var reader = new FileReader();
-                                            reader.readAsDataURL(audioBlob);
-                                            reader.onloadend = function() {
-                                                hiddenInput.value = reader.result;
-                                            }
-                                        });
-
-                                        btnRecord.disabled = true;
-                                        btnStop.disabled = false;
-                                        btnPlay.disabled = true;
-                                        btnReset.disabled = true;
-                                        status.textContent = "Grabando...";
-                                        status.style.color = "red";
-                                        
-                                    } catch(err) {
-                                        console.error(err);
-                                        alert("No se pudo acceder al micrófono. Por favor verifique permisos.");
-                                    }
-                                }
-
-                                function stopRecording() {
-                                    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-                                        mediaRecorder.stop();
-                                        if(stream) stream.getTracks().forEach(track => track.stop());
-                                        
-                                        btnRecord.disabled = true;
-                                        btnStop.disabled = true;
-                                        btnPlay.disabled = false;
-                                        btnReset.disabled = false;
-                                        status.textContent = "Grabación finalizada.";
-                                        status.style.color = "green";
-                                    }
-                                }
-
-                                function playAudio() {
-                                    if (audioPreview.src) {
-                                        audioPreview.play().catch(function(err) {
-                                            showAudioFeedback("ℹ️ No se puede reproducir localmente, pero la grabación es válida.", "info");
-                                        });
-                                    }
-                                }
-
-                                function resetAudio() {
-                                    audioBlob = null;
-                                    hiddenInput.value = "";
-                                    canPlayback = false;
-                                    hideAudioFeedback();
-                                    btnRecord.disabled = false;
-                                    btnStop.disabled = true;
-                                    btnPlay.disabled = true;
-                                    btnReset.disabled = true;
-                                    status.textContent = "Listo para grabar";
-                                    status.style.color = "#555";
-                                }
-
-                                btnRecord.addEventListener('click', startRecording);
-                                btnStop.addEventListener('click', stopRecording);
-                                btnPlay.addEventListener('click', playAudio);
-                                btnReset.addEventListener('click', resetAudio);
-                                
-                                // Función para manejar accesibilidad (Audio Exento)
-                                function toggleAudioRequirement() {
-                                    var exentoCheckbox = document.getElementById('audio_exento');
-                                    var isExento = exentoCheckbox && exentoCheckbox.checked;
-                                    
-                                    var audioContainer = document.querySelector('.audio-container');
-                                    var audioText = audioContainer ? audioContainer.querySelector('.audio-text') : null;
-                                    var audioControls = document.querySelector('.audio-controls');
-                                    
-                                    if (isExento) {
-                                        // Ocultar elementos
-                                        if(audioText) audioText.style.display = 'none';
-                                        if(audioControls) audioControls.style.display = 'none';
-                                        if(audioPreview) audioPreview.style.display = 'none';
-                                        
-                                        // Limpiar estado
-                                        audioBlob = null;
-                                        if(hiddenInput) hiddenInput.value = "";
-                                        canPlayback = false;
-                                        hideAudioFeedback();
-                                        
-                                        // Deshabilitar botones (aunque estén ocultos, por seguridad)
-                                        if(btnRecord) btnRecord.disabled = true;
-                                        if(btnStop) btnStop.disabled = true;
-                                        if(btnPlay) btnPlay.disabled = true;
-                                        if(btnReset) btnReset.disabled = true;
-                                        
-                                        // Mostrar mensaje de estado
-                                        if(status) {
-                                            status.textContent = "Audio exento por imposibilidad física (accesibilidad)";
-                                            status.style.color = "#0d6efd"; // Azul informativo
-                                            // Aseguramos que el status sea visible aunque audioControls esté oculto?
-                                            // El status está DENTRO de audioControls en el HTML actual:
-                                            // <div class="audio-controls"> ... <span class="audio-status"></span> </div>
-                                            // SI ocultamos audioControls, NO se verá el mensaje.
-                                            // Debemos mover el status fuera o manejarlo diferente.
-                                            // Requerimiento: "Ocultar completamente: El bloque .audio-controls"
-                                            // Requerimiento: "Mostrar mensaje informativo"
-                                            // Solución: Crear/Mostrar un mensaje fuera de los controles.
-                                            
-                                            // Vamos a insertar un mensaje si no existe, o usar uno existente fuera.
-                                            // En el HTML actual no hay slot fuera. 
-                                            // Insertaremos un div dinámico o usaremos el feedback container.
-                                        }
-                                        
-                                        var feedback = document.getElementById('audio-feedback');
-                                        if (feedback) {
-                                            feedback.textContent = "ℹ️ Audio exento por imposibilidad física (accesibilidad)";
-                                            feedback.className = 'file-feedback info';
-                                            feedback.style.display = 'block';
-                                        }
-                                        
-                                    } else {
-                                        // Restaurar elementos
-                                        if(audioText) audioText.style.display = '';
-                                        if(audioControls) audioControls.style.display = ''; // Restaurar display original (flex/block)
-                                        // audioPreview se queda oculto hasta que haya grabación
-                                        
-                                        // Restaurar estado inicial
-                                        resetAudio();
-                                    }
-                                }
-                                
-                                // Exponer globalmente y asignar listener
-                                window.toggleAudioRequirement = toggleAudioRequirement;
-                                var exentoCheckbox = document.getElementById('audio_exento');
-                                if(exentoCheckbox) {
-                                    exentoCheckbox.addEventListener('change', toggleAudioRequirement);
-                                    // Inicializar al cargar
-                                    toggleAudioRequirement();
-                                }
-
-                                // Validación al enviar
-                                var form = document.getElementById('acceptForm');
-                                form.addEventListener('submit', function(e) {
-                                    var exentoCheckbox = document.getElementById('audio_exento');
-                                    var isExento = exentoCheckbox && exentoCheckbox.checked;
-                                    
-                                    if (!hiddenInput.value && !isExento) {
-                                        alert("El audio de aceptación es obligatorio. Por favor grabe su aceptación.");
-                                        e.preventDefault();
-                                    }
-                                });
-                            })();
-                            </script>
-                            {% endif %}
-
+                            <!-- Firma -->
                             {% if evento.req_firma %}
-                            <div class="signature-container">
-                                <label>Firma digital (requerida)</label>
-                                <canvas id="signature-pad" class="signature-pad"></canvas>
-                                <button type="button" class="btn btn-clear" id="clear-signature">Limpiar firma</button>
-                                
-                                <div style="margin-top: 15px;">
-                                    <label style="display: flex; align-items: center; gap: 8px; font-weight: bold; background: #fff3cd; padding: 10px; border-radius: 4px; border: 1px solid #ffeeba;">
-                                        <input type="checkbox" id="firma_asistida" name="firma_asistida" value="1">
-                                        La firma se realiza de forma asistida
-                                    </label>
+                            <div class="form-group">
+                                <h3>Firma Digital</h3>
+                                <div class="signature-pad-wrapper">
+                                    <canvas id="signature-pad"></canvas>
                                 </div>
-                                <div class="file-hint">Máx. {{ MAX_FIRMA_MB }} MB</div>
-                                <div id="firma_feedback" class="file-feedback" style="display:none;"></div>
-                                <div id="firma_mobile_tip" class="file-feedback info" style="display:none;">
-                                    📱 <strong>Uso simple:</strong> Deslice su dedo sobre el recuadro para firmar. Puede limpiar y volver a firmar si es necesario.
+                                <div class="signature-tools">
+                                    <button type="button" class="btn btn-secondary btn-sm" id="clear-signature">Borrar firma</button>
+                                    <div style="font-size:0.8rem; color:#666;">Firme dentro del recuadro</div>
+                                </div>
+                                <div id="firma_feedback" class="feedback"></div>
+
+                                <div class="checkbox-wrapper">
+                                    <input type="checkbox" id="firma_asistida" name="firma_asistida" value="1">
+                                    <label for="firma_asistida" style="font-size:0.9rem; margin:0;">
+                                        Firma asistida (por imposibilidad física o técnica)
+                                    </label>
                                 </div>
                                 <input type="hidden" name="firma_base64" id="firma_base64">
                             </div>
                             {% endif %}
 
-                            <div class="checkbox">
-                                <label>
-                                    <input type="checkbox" name="acepto" required />
-                                    Leí y acepto el deslinde de responsabilidad.
+                            <!-- Aceptación Final -->
+                            <div class="checkbox-wrapper" style="background: #e9ecef; border: 1px solid #ced4da;">
+                                <input type="checkbox" name="acepto" id="acepto" required />
+                                <label for="acepto" style="margin:0; font-weight:bold;">
+                                    Declaro bajo juramento que los datos son reales y acepto el deslinde de responsabilidad.
                                 </label>
                             </div>
 
-                            <button type="submit" class="btn">Aceptar deslinde</button>
+                            <button type="submit" class="btn btn-primary btn-lg" style="width:100%; margin-top:16px;">
+                                ✅ CONFIRMAR Y ENVIAR
+                            </button>
                         </form>
 
-                        {% if evento.req_firma %}
+                        <!-- Scripts Lógica -->
                         <script>
+                            // Constantes del Backend
+                            const MAX_IMAGE_BYTES = {{ MAX_IMAGE_DOC_MB }} * 1024 * 1024;
+                            const MAX_AUDIO_BYTES = {{ MAX_AUDIO_MB }} * 1024 * 1024;
+                            const MAX_FIRMA_BYTES = {{ MAX_FIRMA_MB }} * 1024 * 1024;
+
+                            // Actualizar nombre en guión de audio
+                            const nameInput = document.getElementById('nombre_participante');
+                            const nameScript = document.getElementById('nombre-script');
+                            if(nameInput && nameScript) {
+                                nameInput.addEventListener('input', function() {
+                                    nameScript.textContent = this.value || "[Su Nombre]";
+                                });
+                            }
+
+                            // Validación de Archivos Genérica
+                            function validateFileSize(input, feedbackId, maxBytes, typeName) {
+                                const feedback = document.getElementById(feedbackId);
+                                if (input.files && input.files[0]) {
+                                    if (input.files[0].size > maxBytes) {
+                                        feedback.textContent = `⚠️ El archivo es muy pesado (${(input.files[0].size/1024/1024).toFixed(1)} MB). Máximo permitido: ${typeName}`;
+                                        feedback.className = 'feedback error';
+                                        feedback.style.display = 'block';
+                                        input.value = ""; // Reset
+                                        return false;
+                                    } else {
+                                        feedback.style.display = 'none';
+                                        return true;
+                                    }
+                                }
+                                return true;
+                            }
+
+                            // Bind File Inputs
+                            ['doc_frente', 'doc_dorso', 'salud_doc'].forEach(id => {
+                                const input = document.getElementById(id);
+                                if(input) {
+                                    input.addEventListener('change', function() {
+                                        validateFileSize(this, id + '_feedback', MAX_IMAGE_BYTES, '{{ MAX_IMAGE_DOC_MB }} MB');
+                                    });
+                                }
+                            });
+
+                            // Lógica de Audio (si existe)
+                            {% if evento.req_audio %}
                             (function() {
-                                // Detección mobile para mostrar tip de firma
-                                function isMobile() {
-                                    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
-                                           (window.innerWidth <= 768);
+                                let mediaRecorder;
+                                let audioChunks = [];
+                                const btnRecord = document.getElementById('btn-record');
+                                const btnStop = document.getElementById('btn-stop');
+                                const btnPlay = document.getElementById('btn-play');
+                                const btnReset = document.getElementById('btn-reset');
+                                const status = document.getElementById('audio-status');
+                                const audioPreview = document.getElementById('audio-preview');
+                                const hiddenInput = document.getElementById('audio_base64');
+                                const feedback = document.getElementById('audio-feedback');
+
+                                window.toggleAudioRequirement = function() {
+                                    const isExento = document.getElementById('audio_exento').checked;
+                                    const container = document.getElementById('audio_container_inner');
+                                    if(isExento) {
+                                        container.style.opacity = '0.5';
+                                        container.style.pointerEvents = 'none';
+                                        hiddenInput.value = "";
+                                        feedback.style.display = 'none';
+                                    } else {
+                                        container.style.opacity = '1';
+                                        container.style.pointerEvents = 'auto';
+                                    }
+                                };
+
+                                async function startRecording() {
+                                    try {
+                                        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                                        mediaRecorder = new MediaRecorder(stream);
+                                        audioChunks = [];
+                                        
+                                        mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+                                        mediaRecorder.onstop = () => {
+                                            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                                            if(audioBlob.size > MAX_AUDIO_BYTES) {
+                                                feedback.textContent = "⚠️ Audio muy largo. Intente de nuevo.";
+                                                feedback.className = 'feedback error';
+                                                feedback.style.display = 'block';
+                                                return;
+                                            }
+                                            
+                                            const audioUrl = URL.createObjectURL(audioBlob);
+                                            audioPreview.src = audioUrl;
+                                            
+                                            const reader = new FileReader();
+                                            reader.readAsDataURL(audioBlob);
+                                            reader.onloadend = () => hiddenInput.value = reader.result;
+
+                                            btnPlay.disabled = false;
+                                            btnReset.disabled = false;
+                                            status.textContent = "✅ Grabación completada";
+                                        };
+
+                                        mediaRecorder.start();
+                                        btnRecord.disabled = true;
+                                        btnStop.disabled = false;
+                                        btnPlay.disabled = true;
+                                        btnReset.disabled = true;
+                                        status.textContent = "🔴 Grabando...";
+                                        status.style.color = "#dc3545";
+                                    } catch (err) {
+                                        alert("No se pudo acceder al micrófono. Verifique los permisos.");
+                                        console.error(err);
+                                    }
                                 }
-                                
-                                if (isMobile()) {
-                                    var firmaTip = document.getElementById('firma_mobile_tip');
-                                    if (firmaTip) firmaTip.style.display = 'block';
-                                }
-                                
-                                var canvas = document.getElementById('signature-pad');
-                                var form = document.getElementById('acceptForm');
-                                var clearBtn = document.getElementById('clear-signature');
-                                var hiddenInput = document.getElementById('firma_base64');
-                                
-                                // Ajustar canvas al contenedor
+
+                                btnRecord.addEventListener('click', startRecording);
+                                btnStop.addEventListener('click', () => {
+                                    if(mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
+                                    btnStop.disabled = true;
+                                });
+                                btnPlay.addEventListener('click', () => audioPreview.play());
+                                btnReset.addEventListener('click', () => {
+                                    hiddenInput.value = "";
+                                    btnRecord.disabled = false;
+                                    btnPlay.disabled = true;
+                                    btnReset.disabled = true;
+                                    status.textContent = "Listo para grabar";
+                                    status.style.color = "#666";
+                                });
+                            })();
+                            {% endif %}
+
+                            // Lógica de Firma (si existe)
+                            {% if evento.req_firma %}
+                            (function() {
+                                const canvas = document.getElementById('signature-pad');
+                                const ctx = canvas.getContext('2d');
+                                const hiddenInput = document.getElementById('firma_base64');
+                                let hasSigned = false;
+
                                 function resizeCanvas() {
-                                    var ratio = Math.max(window.devicePixelRatio || 1, 1);
+                                    const ratio = Math.max(window.devicePixelRatio || 1, 1);
                                     canvas.width = canvas.offsetWidth * ratio;
                                     canvas.height = canvas.offsetHeight * ratio;
-                                    canvas.getContext("2d").scale(ratio, ratio);
+                                    ctx.scale(ratio, ratio);
                                 }
-                                window.onresize = resizeCanvas;
+                                window.addEventListener('resize', resizeCanvas);
                                 resizeCanvas();
 
-                                var ctx = canvas.getContext('2d');
-                                var drawing = false;
-                                var hasSigned = false;
-
-                                function getPos(e) {
-                                    var rect = canvas.getBoundingClientRect();
-                                    var x, y;
-                                    if (e.touches) {
-                                        x = e.touches[0].clientX - rect.left;
-                                        y = e.touches[0].clientY - rect.top;
-                                    } else {
-                                        x = e.clientX - rect.left;
-                                        y = e.clientY - rect.top;
-                                    }
-                                    return {x: x, y: y};
-                                }
-
-                                function startDraw(e) {
+                                // Eventos de dibujo
+                                let drawing = false;
+                                function start(e) {
                                     e.preventDefault();
                                     drawing = true;
-                                    var pos = getPos(e);
                                     ctx.beginPath();
-                                    ctx.moveTo(pos.x, pos.y);
+                                    const {x, y} = getPos(e);
+                                    ctx.moveTo(x, y);
                                 }
-
-                                function moveDraw(e) {
-                                    if (!drawing) return;
+                                function move(e) {
+                                    if(!drawing) return;
                                     e.preventDefault();
-                                    var pos = getPos(e);
-                                    ctx.lineTo(pos.x, pos.y);
+                                    const {x, y} = getPos(e);
+                                    ctx.lineTo(x, y);
                                     ctx.stroke();
                                     hasSigned = true;
                                 }
-
-                                function endDraw(e) {
-                                    drawing = false;
+                                function end() { drawing = false; }
+                                function getPos(e) {
+                                    const rect = canvas.getBoundingClientRect();
+                                    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                                    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+                                    return { x: clientX - rect.left, y: clientY - rect.top };
                                 }
 
-                                canvas.addEventListener('mousedown', startDraw);
-                                canvas.addEventListener('mousemove', moveDraw);
-                                canvas.addEventListener('mouseup', endDraw);
-                                canvas.addEventListener('mouseout', endDraw);
+                                canvas.addEventListener('mousedown', start);
+                                canvas.addEventListener('mousemove', move);
+                                canvas.addEventListener('mouseup', end);
+                                canvas.addEventListener('touchstart', start, {passive: false});
+                                canvas.addEventListener('touchmove', move, {passive: false});
+                                canvas.addEventListener('touchend', end);
 
-                                canvas.addEventListener('touchstart', startDraw);
-                                canvas.addEventListener('touchmove', moveDraw);
-                                canvas.addEventListener('touchend', endDraw);
-
-                                clearBtn.addEventListener('click', function() {
+                                document.getElementById('clear-signature').addEventListener('click', () => {
                                     ctx.clearRect(0, 0, canvas.width, canvas.height);
                                     hasSigned = false;
                                     hiddenInput.value = "";
                                 });
 
-                                form.addEventListener('submit', function(e) {
-                                    if (hasSigned) {
-                                        var dataUrl = canvas.toDataURL("image/png");
-                                        // Estimar tamaño aproximado (base64 es ~33% más grande que binario)
-                                        var base64Size = dataUrl.length;
-                                        var estimatedSize = (base64Size * 3) / 4;
-                                        var maxFirmaBytes = {{ MAX_FIRMA_MB }} * 1024 * 1024;
-                                        
-                                        if (estimatedSize > maxFirmaBytes) {
-                                            var feedback = document.getElementById('firma_feedback');
-                                            if (feedback) {
-                                                feedback.textContent = "⚠️ La firma es demasiado grande. Por favor, firme más pequeña.";
-                                                feedback.className = 'file-feedback error';
-                                                feedback.style.display = 'block';
-                                            }
-                                            e.preventDefault();
-                                            return;
-                                        }
-                                        
-                                        hiddenInput.value = dataUrl;
-                                    } else {
-                                        // Si es obligatorio, impedir submit
-                                        alert("Por favor, firme en el recuadro.");
+                                // Sync on submit
+                                document.getElementById('acceptForm').addEventListener('submit', function(e) {
+                                    if(document.getElementById('firma_asistida').checked) return; // Skip si es asistida
+                                    
+                                    if(!hasSigned) {
+                                        alert("Por favor firme el documento.");
                                         e.preventDefault();
+                                        return;
                                     }
+                                    hiddenInput.value = canvas.toDataURL("image/png");
                                 });
                             })();
+                            {% endif %}
+
+                            // Validación Final en Submit
+                            document.getElementById('acceptForm').addEventListener('submit', function(e) {
+                                // Validar audio si es requerido y no exento
+                                {% if evento.req_audio %}
+                                const audioInput = document.getElementById('audio_base64');
+                                const audioExento = document.getElementById('audio_exento');
+                                if (!audioInput.value && (!audioExento || !audioExento.checked)) {
+                                    alert("Debe grabar el audio de aceptación.");
+                                    e.preventDefault();
+                                    return;
+                                }
+                                {% endif %}
+                            });
                         </script>
-                        {% endif %}
                     {% endif %}
                 </div>
             </body>
             </html>
             """,
+
             # Plantilla de detalle de aceptación
             "admin_aceptacion_detalle.html": """
             <!doctype html>
