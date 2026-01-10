@@ -760,7 +760,7 @@ templates_env = Environment(
                                 <div class="file-hint">Máx. {{ MAX_FIRMA_MB }} MB</div>
                                 <div id="firma_feedback" class="file-feedback" style="display:none;"></div>
                                 <div id="firma_mobile_tip" class="file-feedback info" style="display:none;">
-                                    📱 <strong>Uso simple:</strong> Deslize su dedo sobre el recuadro para firmar. Puede limpiar y volver a firmar si es necesario.
+                                    📱 <strong>Uso simple:</strong> Deslice su dedo sobre el recuadro para firmar. Puede limpiar y volver a firmar si es necesario.
                                 </div>
                                 <input type="hidden" name="firma_base64" id="firma_base64">
                             </div>
