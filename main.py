@@ -338,9 +338,9 @@ templates_env = Environment(
                         display: block;
                         width: 100%;
                         margin-top: 6px;
-                        margin-bottom: 12px;
+                        margin-bottom: 16px;
                         font-size: 0.85rem;
-                        line-height: 1.3;
+                        line-height: 1.4;
                         color: #6b7280;
                     }
 
