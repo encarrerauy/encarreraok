@@ -3481,6 +3481,31 @@ def procesar_aceptacion(
         raise HTTPException(status_code=500, detail="Error interno del servidor")
 
 
+# ------------------------------------------------------------------------------
+# Seguridad (Basic Auth para Admin)
+# ------------------------------------------------------------------------------
+security = HTTPBasic()
+
+def get_current_username(credentials: HTTPBasicCredentials = Depends(security)):
+    """Verifica credenciales para acceso admin."""
+    # Valores por defecto para desarrollo; en producción usar ENV vars
+    correct_username = os.environ.get("ADMIN_USER", "admin")
+    correct_password = os.environ.get("ADMIN_PASSWORD", "encarrera2025")
+    
+    # Comparación segura para evitar timing attacks
+    is_correct_username = secrets.compare_digest(credentials.username.encode("utf8"), correct_username.encode("utf8"))
+    is_correct_password = secrets.compare_digest(credentials.password.encode("utf8"), correct_password.encode("utf8"))
+    
+    if not (is_correct_username and is_correct_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Credenciales incorrectas",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    return credentials.username
+
+
+# ADMIN PATCH: fix admin home auth (moved security block up)
 # ADMIN PATCH: admin home v1
 @app.get("/admin", response_class=HTMLResponse)
 @app.get("/admin/home", response_class=HTMLResponse)
@@ -3681,28 +3706,6 @@ def admin_home(username: str = Depends(get_current_username)) -> HTMLResponse:
     return HTMLResponse(content=html_content.replace("{{ username }}", username))
 # /ADMIN PATCH
 
-# ------------------------------------------------------------------------------
-# Seguridad (Basic Auth para Admin)
-# ------------------------------------------------------------------------------
-security = HTTPBasic()
-
-def get_current_username(credentials: HTTPBasicCredentials = Depends(security)):
-    """Verifica credenciales para acceso admin."""
-    # Valores por defecto para desarrollo; en producción usar ENV vars
-    correct_username = os.environ.get("ADMIN_USER", "admin")
-    correct_password = os.environ.get("ADMIN_PASSWORD", "encarrera2025")
-    
-    # Comparación segura para evitar timing attacks
-    is_correct_username = secrets.compare_digest(credentials.username.encode("utf8"), correct_username.encode("utf8"))
-    is_correct_password = secrets.compare_digest(credentials.password.encode("utf8"), correct_password.encode("utf8"))
-    
-    if not (is_correct_username and is_correct_password):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Credenciales incorrectas",
-            headers={"WWW-Authenticate": "Basic"},
-        )
-    return credentials.username
 
 
 @app.get("/admin/eventos", response_class=HTMLResponse)
