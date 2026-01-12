@@ -22,7 +22,7 @@
 # - Ruta de la base: configurable con ENV `ENCARRERAOK_DB_PATH`.
 
 from fastapi import FastAPI, Request, Form, HTTPException, UploadFile, File, Depends, status
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, StreamingResponse, FileResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from jinja2 import Environment, DictLoader, select_autoescape
 from pydantic import BaseModel
@@ -1074,21 +1074,21 @@ templates_env = Environment(
                             <td>{{ a.salud_doc_tipo or '-' }}</td>
                             <td>{{ 'SÍ' if a.audio_exento else '-' }}</td>
                             <td>{{ 'SÍ' if a.firma_asistida else '-' }}</td>
-                            <!-- ADMIN PATCH: clickable evidence links -->
+                            <!-- ADMIN PATCH: serve local evidences -->
                             <td style="font-size: 0.85em; max-width: 200px; overflow: hidden; text-overflow: ellipsis;">
-                                {% if a.firma_path %}<a href="{{ a.firma_path }}" target="_blank" style="color: #0d6efd; text-decoration: underline;">{{ a.firma_path }}</a>{% else %}-{% endif %}
+                                {% if a.firma_path %}<a href="/admin/evidence/view/{{ a.id }}/firma" target="_blank" style="color: #0d6efd; text-decoration: underline;">Ver Firma</a>{% else %}-{% endif %}
                             </td>
                             <td style="font-size: 0.85em; max-width: 200px; overflow: hidden; text-overflow: ellipsis;">
-                                {% if a.doc_frente_path %}<a href="{{ a.doc_frente_path }}" target="_blank" style="color: #0d6efd; text-decoration: underline;">{{ a.doc_frente_path }}</a>{% else %}-{% endif %}
+                                {% if a.doc_frente_path %}<a href="/admin/evidence/view/{{ a.id }}/doc_frente" target="_blank" style="color: #0d6efd; text-decoration: underline;">Ver Doc Frente</a>{% else %}-{% endif %}
                             </td>
                             <td style="font-size: 0.85em; max-width: 200px; overflow: hidden; text-overflow: ellipsis;">
-                                {% if a.doc_dorso_path %}<a href="{{ a.doc_dorso_path }}" target="_blank" style="color: #0d6efd; text-decoration: underline;">{{ a.doc_dorso_path }}</a>{% else %}-{% endif %}
+                                {% if a.doc_dorso_path %}<a href="/admin/evidence/view/{{ a.id }}/doc_dorso" target="_blank" style="color: #0d6efd; text-decoration: underline;">Ver Doc Dorso</a>{% else %}-{% endif %}
                             </td>
                             <td style="font-size: 0.85em; max-width: 200px; overflow: hidden; text-overflow: ellipsis;">
-                                {% if a.audio_path %}<a href="{{ a.audio_path }}" target="_blank" style="color: #0d6efd; text-decoration: underline;">{{ a.audio_path }}</a>{% else %}-{% endif %}
+                                {% if a.audio_path %}<a href="/admin/evidence/view/{{ a.id }}/audio" target="_blank" style="color: #0d6efd; text-decoration: underline;">Ver Audio</a>{% else %}-{% endif %}
                             </td>
                             <td style="font-size: 0.85em; max-width: 200px; overflow: hidden; text-overflow: ellipsis;">
-                                {% if a.salud_doc_path %}<a href="{{ a.salud_doc_path }}" target="_blank" style="color: #0d6efd; text-decoration: underline;">{{ a.salud_doc_path }}</a>{% else %}-{% endif %}
+                                {% if a.salud_doc_path %}<a href="/admin/evidence/view/{{ a.id }}/salud_doc" target="_blank" style="color: #0d6efd; text-decoration: underline;">Ver Salud</a>{% else %}-{% endif %}
                             </td>
                         </tr>
                     {% endfor %}
@@ -4317,6 +4317,46 @@ def admin_servir_evidencia(
             yield from file_like
 
     return StreamingResponse(iterfile(), media_type=media_type)
+
+
+# ADMIN PATCH: serve local evidences
+@app.get("/admin/evidence/view/{aceptacion_id}/{tipo}")
+def admin_ver_evidencia_full(
+    aceptacion_id: int,
+    tipo: str,
+    username: str = Depends(get_current_username)
+):
+    """
+    Endpoint dedicado para visualizar evidencias en navegador (FileResponse).
+    Solo lectura. No expone path real.
+    """
+    # Reutilizamos la lógica de obtención para seguridad
+    aceptacion = get_aceptacion_detalle(aceptacion_id)
+    if not aceptacion:
+        raise HTTPException(status_code=404, detail="Aceptación no encontrada")
+    
+    file_path = None
+    
+    if tipo == "firma":
+        file_path = aceptacion.get("firma_path")
+    elif tipo == "doc_frente":
+        file_path = aceptacion.get("doc_frente_path")
+    elif tipo == "doc_dorso":
+        file_path = aceptacion.get("doc_dorso_path")
+    elif tipo == "audio":
+        file_path = aceptacion.get("audio_path")
+    elif tipo == "salud_doc":
+        file_path = aceptacion.get("salud_doc_path")
+    else:
+        raise HTTPException(status_code=400, detail="Tipo de evidencia inválido")
+
+    if not file_path or not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Archivo de evidencia no encontrado en disco")
+
+    if not os.path.isfile(file_path):
+        raise HTTPException(status_code=400, detail="El path no es un archivo válido")
+
+    return FileResponse(file_path)
 
 
 # ------------------------------------------------------------------------------
