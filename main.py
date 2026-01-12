@@ -1074,11 +1074,22 @@ templates_env = Environment(
                             <td>{{ a.salud_doc_tipo or '-' }}</td>
                             <td>{{ 'SÍ' if a.audio_exento else '-' }}</td>
                             <td>{{ 'SÍ' if a.firma_asistida else '-' }}</td>
-                            <td style="font-size: 0.85em; max-width: 200px; overflow: hidden; text-overflow: ellipsis;">{{ a.firma_path or '-' }}</td>
-                            <td style="font-size: 0.85em; max-width: 200px; overflow: hidden; text-overflow: ellipsis;">{{ a.doc_frente_path or '-' }}</td>
-                            <td style="font-size: 0.85em; max-width: 200px; overflow: hidden; text-overflow: ellipsis;">{{ a.doc_dorso_path or '-' }}</td>
-                            <td style="font-size: 0.85em; max-width: 200px; overflow: hidden; text-overflow: ellipsis;">{{ a.audio_path or '-' }}</td>
-                            <td style="font-size: 0.85em; max-width: 200px; overflow: hidden; text-overflow: ellipsis;">{{ a.salud_doc_path or '-' }}</td>
+                            <!-- ADMIN PATCH: clickable evidence links -->
+                            <td style="font-size: 0.85em; max-width: 200px; overflow: hidden; text-overflow: ellipsis;">
+                                {% if a.firma_path %}<a href="{{ a.firma_path }}" target="_blank" style="color: #0d6efd; text-decoration: underline;">{{ a.firma_path }}</a>{% else %}-{% endif %}
+                            </td>
+                            <td style="font-size: 0.85em; max-width: 200px; overflow: hidden; text-overflow: ellipsis;">
+                                {% if a.doc_frente_path %}<a href="{{ a.doc_frente_path }}" target="_blank" style="color: #0d6efd; text-decoration: underline;">{{ a.doc_frente_path }}</a>{% else %}-{% endif %}
+                            </td>
+                            <td style="font-size: 0.85em; max-width: 200px; overflow: hidden; text-overflow: ellipsis;">
+                                {% if a.doc_dorso_path %}<a href="{{ a.doc_dorso_path }}" target="_blank" style="color: #0d6efd; text-decoration: underline;">{{ a.doc_dorso_path }}</a>{% else %}-{% endif %}
+                            </td>
+                            <td style="font-size: 0.85em; max-width: 200px; overflow: hidden; text-overflow: ellipsis;">
+                                {% if a.audio_path %}<a href="{{ a.audio_path }}" target="_blank" style="color: #0d6efd; text-decoration: underline;">{{ a.audio_path }}</a>{% else %}-{% endif %}
+                            </td>
+                            <td style="font-size: 0.85em; max-width: 200px; overflow: hidden; text-overflow: ellipsis;">
+                                {% if a.salud_doc_path %}<a href="{{ a.salud_doc_path }}" target="_blank" style="color: #0d6efd; text-decoration: underline;">{{ a.salud_doc_path }}</a>{% else %}-{% endif %}
+                            </td>
                         </tr>
                     {% endfor %}
                     </tbody>
