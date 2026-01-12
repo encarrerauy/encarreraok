@@ -1009,6 +1009,9 @@ templates_env = Environment(
                 <h1>Aceptaciones</h1>
                 
                 <div class="toolbar">
+                    <!-- ADMIN PATCH: admin home link -->
+                    <a href="/admin/home" class="btn btn-outline">🏠 Admin Home</a>
+                    <!-- /ADMIN PATCH -->
                     <a href="/admin/eventos" class="btn btn-outline">📅 Gestionar Eventos</a>
                     
                     <form action="/admin/aceptaciones" method="get" style="display: flex; gap: 10px; align-items: center;">
@@ -1196,6 +1199,9 @@ templates_env = Environment(
                 <div class="toolbar">
                     <h1>Gestión de Eventos</h1>
                     <div>
+                        <!-- ADMIN PATCH: admin home link -->
+                        <a href="/admin/home" class="btn" style="background: #6c757d;">🏠 Home</a>
+                        <!-- /ADMIN PATCH -->
                         <a href="/admin/aceptaciones" class="btn" style="background: #6c757d;">Ver Aceptaciones</a>
                         <a href="/admin/eventos/nuevo" class="btn">➕ Crear Nuevo Evento</a>
                     </div>
@@ -3474,6 +3480,206 @@ def procesar_aceptacion(
         )
         raise HTTPException(status_code=500, detail="Error interno del servidor")
 
+
+# ADMIN PATCH: admin home v1
+@app.get("/admin", response_class=HTMLResponse)
+@app.get("/admin/home", response_class=HTMLResponse)
+def admin_home(username: str = Depends(get_current_username)) -> HTMLResponse:
+    """Dashboard principal de administración."""
+    
+    # Template embebido para el home admin
+    html_content = """
+    <!doctype html>
+    <html lang="es">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Admin Dashboard - EncarreraOK</title>
+        <style>
+            body { 
+                font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; 
+                margin: 0; 
+                background: #f4f6f9; 
+                color: #333;
+            }
+            .header {
+                background: #fff;
+                padding: 1rem 1.5rem;
+                border-bottom: 1px solid #ddd;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+            }
+            .header h1 { margin: 0; font-size: 1.25rem; color: #1a1a1a; }
+            .user-info { font-size: 0.9rem; color: #666; }
+            
+            .container {
+                max-width: 1000px;
+                margin: 2rem auto;
+                padding: 0 1.5rem;
+            }
+            
+            .welcome-text {
+                margin-bottom: 2rem;
+                color: #555;
+            }
+
+            .grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+                gap: 1.5rem;
+            }
+
+            .card {
+                background: white;
+                border-radius: 8px;
+                padding: 1.5rem;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+                transition: transform 0.2s, box-shadow 0.2s;
+                text-decoration: none;
+                color: inherit;
+                border: 1px solid transparent;
+                display: flex;
+                flex-direction: column;
+                height: 100%;
+                box-sizing: border-box;
+            }
+            
+            .card:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+                border-color: #b0c4de;
+            }
+
+            .card-icon {
+                font-size: 2rem;
+                margin-bottom: 1rem;
+            }
+            
+            .card-title {
+                font-size: 1.1rem;
+                font-weight: 600;
+                margin-bottom: 0.5rem;
+                color: #0d6efd;
+            }
+            
+            .card-desc {
+                font-size: 0.9rem;
+                color: #666;
+                line-height: 1.4;
+                flex-grow: 1;
+            }
+            
+            .card-action {
+                margin-top: 1rem;
+                font-size: 0.9rem;
+                font-weight: 500;
+                color: #0d6efd;
+                display: flex;
+                align-items: center;
+            }
+            .card-action::after {
+                content: "→";
+                margin-left: 5px;
+                transition: margin-left 0.2s;
+            }
+            .card:hover .card-action::after {
+                margin-left: 8px;
+            }
+
+            .card.disabled {
+                opacity: 0.6;
+                cursor: default;
+                background: #f8f9fa;
+            }
+            .card.disabled:hover {
+                transform: none;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+                border-color: transparent;
+            }
+            .card.disabled .card-title { color: #6c757d; }
+            .card.disabled .card-action { display: none; }
+            
+            .badge {
+                display: inline-block;
+                padding: 2px 8px;
+                font-size: 0.75rem;
+                background: #e9ecef;
+                color: #495057;
+                border-radius: 10px;
+                margin-bottom: 0.5rem;
+            }
+
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <h1>EncarreraOK Admin</h1>
+            <div class="user-info">Usuario: <strong>{{ username }}</strong></div>
+        </div>
+
+        <div class="container">
+            <div class="welcome-text">
+                <p>Bienvenido al panel de control. Seleccione una opción para gestionar el sistema.</p>
+            </div>
+
+            <div class="grid">
+                <!-- Gestión de Eventos -->
+                <a href="/admin/eventos" class="card">
+                    <div class="card-icon">📅</div>
+                    <div class="card-title">Gestión de Eventos</div>
+                    <div class="card-desc">Crear, editar y configurar eventos activos. Obtener enlaces públicos.</div>
+                    <div class="card-action">Ir a Eventos</div>
+                </a>
+
+                <!-- Aceptaciones -->
+                <a href="/admin/aceptaciones" class="card">
+                    <div class="card-icon">📝</div>
+                    <div class="card-title">Aceptaciones</div>
+                    <div class="card-desc">Listado completo de deslindes firmados. Filtrar, buscar y verificar evidencias.</div>
+                    <div class="card-action">Ver Registros</div>
+                </a>
+
+                <!-- Exportes -->
+                <a href="/admin/eventos" class="card">
+                    <div class="card-icon">📦</div>
+                    <div class="card-title">Exportes Legales</div>
+                    <div class="card-desc">Descargar paquetes ZIP con PDFs firmados, evidencias y manifiestos de auditoría.</div>
+                    <div class="card-action">Ir a Descargas</div>
+                </a>
+
+                <!-- Monitor en Vivo (si se tiene el ID, aquí linkeamos al listado para elegir) -->
+                <a href="/admin/eventos" class="card">
+                    <div class="card-icon">📺</div>
+                    <div class="card-title">Monitor de Entrada</div>
+                    <div class="card-desc">Pantalla de validación en tiempo real para operadores de acceso.</div>
+                    <div class="card-action">Seleccionar Evento</div>
+                </a>
+                
+                <!-- Próximamente -->
+                <div class="card disabled">
+                    <div class="card-icon">🔍</div>
+                    <span class="badge">Próximamente</span>
+                    <div class="card-title">Búsqueda Global</div>
+                    <div class="card-desc">Buscar deslindes por DNI o apellido en todos los eventos históricos.</div>
+                </div>
+
+                <div class="card disabled">
+                    <div class="card-icon">📊</div>
+                    <span class="badge">Próximamente</span>
+                    <div class="card-title">Estado del Sistema</div>
+                    <div class="card-desc">Métricas de disco, uso de CPU y estado de servicios.</div>
+                </div>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+    
+    # Renderizamos simple con replace del username (sin cargar template externo para mantenerlo autocontenido)
+    return HTMLResponse(content=html_content.replace("{{ username }}", username))
+# /ADMIN PATCH
 
 # ------------------------------------------------------------------------------
 # Seguridad (Basic Auth para Admin)
