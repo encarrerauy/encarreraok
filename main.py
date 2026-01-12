@@ -1167,6 +1167,81 @@ templates_env = Environment(
             </body>
             </html>
             """,
+            # ADMIN PATCH: admin search deslindes
+            "admin_busqueda_deslindes.html": """
+            <!doctype html>
+            <html lang="es">
+            <head>
+                <meta charset="utf-8" />
+                <meta name="viewport" content="width=device-width, initial-scale=1" />
+                <title>Búsqueda de Deslindes - Admin</title>
+                <style>
+                    body { font-family: system-ui, -apple-system, sans-serif; margin: 0; padding: 20px; background: #f4f6f9; }
+                    .container { max-width: 1000px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+                    h1 { margin-top: 0; color: #333; }
+                    .search-form { display: flex; gap: 10px; margin-bottom: 20px; }
+                    .search-input { flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 16px; }
+                    .btn { padding: 10px 20px; background: #0d6efd; color: white; border: none; border-radius: 4px; cursor: pointer; text-decoration: none; font-size: 16px; }
+                    .btn:hover { background: #0b5ed7; }
+                    .btn-secondary { background: #6c757d; }
+                    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+                    th, td { text-align: left; padding: 12px; border-bottom: 1px solid #ddd; }
+                    th { background-color: #f8f9fa; font-weight: 600; }
+                    tr:hover { background-color: #f1f1f1; }
+                    .no-results { text-align: center; color: #666; margin-top: 20px; }
+                    .back-link { display: inline-block; margin-bottom: 15px; color: #6c757d; text-decoration: none; }
+                    .back-link:hover { text-decoration: underline; }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <a href="/admin/home" class="back-link">← Volver al Dashboard</a>
+                    <h1>Búsqueda de Deslindes</h1>
+                    
+                    <form class="search-form" method="get" action="/admin/search">
+                        <input type="text" name="q" class="search-input" placeholder="Documento, nombre o apellido..." value="{{ query or '' }}" required autofocus>
+                        <button type="submit" class="btn">Buscar</button>
+                    </form>
+
+                    {% if query %}
+                        <p>Resultados para: <strong>{{ query }}</strong> ({{ resultados|length }})</p>
+                    {% endif %}
+
+                    {% if resultados %}
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Participante</th>
+                                <th>Documento</th>
+                                <th>Evento</th>
+                                <th>Fecha</th>
+                                <th>Acción</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for r in resultados %}
+                            <tr>
+                                <td>{{ r.id }}</td>
+                                <td>{{ r.nombre_participante }}</td>
+                                <td>{{ r.documento }}</td>
+                                <td>{{ r.evento_nombre }}</td>
+                                <td>{{ r.fecha_hora[:10] }}</td>
+                                <td>
+                                    <a href="/admin/aceptaciones/{{ r.id }}" class="btn btn-secondary" style="padding: 5px 10px; font-size: 14px;" target="_blank">Ver Deslinde</a>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                    {% elif query %}
+                        <div class="no-results">No se encontraron resultados.</div>
+                    {% endif %}
+                </div>
+            </body>
+            </html>
+            """,
+            # /ADMIN PATCH
             "admin_eventos_lista.html": """
             <!doctype html>
             <html lang="es">
@@ -3682,13 +3757,13 @@ def admin_home(username: str = Depends(get_current_username)) -> HTMLResponse:
                     <div class="card-action">Seleccionar Evento</div>
                 </a>
                 
-                <!-- Próximamente -->
-                <div class="card disabled">
+                <!-- Búsqueda Global -->
+                <a href="/admin/search" class="card">
                     <div class="card-icon">🔍</div>
-                    <span class="badge">Próximamente</span>
                     <div class="card-title">Búsqueda Global</div>
                     <div class="card-desc">Buscar deslindes por DNI o apellido en todos los eventos históricos.</div>
-                </div>
+                    <div class="card-action">Buscar ahora</div>
+                </a>
 
                 <div class="card disabled">
                     <div class="card-icon">📊</div>
@@ -3705,6 +3780,22 @@ def admin_home(username: str = Depends(get_current_username)) -> HTMLResponse:
     # Renderizamos simple con replace del username (sin cargar template externo para mantenerlo autocontenido)
     return HTMLResponse(content=html_content.replace("{{ username }}", username))
 # /ADMIN PATCH
+
+# ADMIN PATCH: admin search deslindes
+@app.get("/admin/search", response_class=HTMLResponse)
+def admin_search(q: Optional[str] = None, username: str = Depends(get_current_username)) -> HTMLResponse:
+    """Búsqueda transversal de deslindes."""
+    resultados = []
+    if q:
+        # Reutilizamos listar_aceptaciones que ya tiene lógica de búsqueda
+        # y limitamos a 50 resultados para performance
+        resultados = listar_aceptaciones(query=q)[:50]
+    
+    template = templates_env.get_template("admin_busqueda_deslindes.html")
+    html = template.render(query=q, resultados=resultados)
+    return HTMLResponse(content=html)
+# /ADMIN PATCH
+
 
 
 

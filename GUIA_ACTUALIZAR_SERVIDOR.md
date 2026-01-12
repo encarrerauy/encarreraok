@@ -349,3 +349,9 @@ sudo systemctl restart encarreraok
 # 5. Verificar que el servicio está corriendo correctamente (debe decir "active (running)")
 sudo systemctl status encarreraok
 ```
+
+
+
+git pull origin main
+sudo systemctl restart encarreraok
+sudo systemctl status encarreraok
