@@ -461,7 +461,8 @@ templates_env = Environment(
                                             <button type="button" class="btn btn-primary btn-sm" id="btn-play" disabled>▶ Escuchar</button>
                                             <button type="button" class="btn btn-secondary btn-sm" id="btn-reset" disabled>🔄 Regrabar</button>
                                         </div>
-                                        <div id="audio-status" class="field-help-visible">Listo para grabar</div>
+                                        <div class="field-help-visible">Presione "Grabar" y lea en voz alta el texto indicado arriba.</div>
+                                        <div id="audio-status" style="margin-top:8px; font-weight:500; color:#495057; font-size:0.9rem;">Listo para grabar</div>
                                         <div id="audio-feedback" class="feedback"></div>
                                         
                                         <!-- Elementos ocultos -->
@@ -482,7 +483,7 @@ templates_env = Environment(
                                 <div class="signature-tools">
                                     <button type="button" class="btn btn-secondary btn-sm" id="clear-signature">Borrar firma</button>
                                 </div>
-                                <div class="field-help-visible">Firme dentro del recuadro</div>
+                                <div class="field-help-visible">Firme dentro del recuadro usando su dedo o un lápiz táctil.</div>
                                 <div id="firma_feedback" class="feedback"></div>
 
                                 <div class="checkbox-wrapper">
@@ -969,7 +970,29 @@ templates_env = Environment(
                     {% endif %}
 
                     <p class="muted" style="margin-top: 24px; font-size: 0.8em;">Registro ID: {{ aceptacion_id }} — {{ fecha_hora }}</p>
+                    
+                    <!-- Integración con popups externos (Gravity / ticketera) -->
+                    <button type="button" 
+                            onclick="finalizarDeslindePopup()" 
+                            style="margin-top:16px;padding:12px 16px; 
+                                   font-size:16px;font-weight:600; 
+                                   border-radius:8px; 
+                                   border:none; 
+                                   background:#2563eb;color:#ffffff; cursor: pointer;"> 
+                      Finalizar y volver 
+                    </button>
                 </div>
+                
+                <script>
+                function finalizarDeslindePopup() {
+                  if (window.parent && window.parent !== window) {
+                    window.parent.postMessage(
+                      { type: "DESLINDE_COMPLETO" },
+                      "*"
+                    );
+                  }
+                }
+                </script>
             </body>
             </html>
             """,
