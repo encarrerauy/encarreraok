@@ -375,10 +375,9 @@ templates_env = Environment(
                 <div class="card">
                     <!-- DESLINDE PATCH: brand header -->
                     <div style="text-align: center; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid #eee;">
-                        <div style="font-size: 24px; font-weight: bold; color: #333; margin-bottom: 8px;">EncarreraOK</div>
                         <!-- BRAND PATCH: add logo -->
-                    <img src="/assets/logo-encarreraok.png" alt="EncarreraOK" style="max-width:180px; width:100%; height:auto; margin-bottom:12px;">
-                    <div style="font-size: 14px; color: #666; text-transform: uppercase; letter-spacing: 1px;">Evidencia clara. Eventos seguros.</div>
+                        <img src="/assets/logo-encarreraok.png" alt="EncarreraOK" style="max-width:180px; width:100%; height:auto; margin-bottom:12px;">
+                        <div style="font-size: 14px; color: #666; text-transform: uppercase; letter-spacing: 1px;">Evidencia clara. Eventos seguros.</div>
                     </div>
                     <!-- /DESLINDE PATCH -->
 
@@ -4923,4 +4922,3 @@ if __name__ == "__main__":
 # - Descarga con watermark opcional
 # - Política de retención configurable por evento
 # ==============================================================================
-
