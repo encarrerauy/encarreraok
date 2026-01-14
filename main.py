@@ -3987,10 +3987,12 @@ def admin_evento_nuevo_post(
         friendly_intro=friendly_intro or 0 # DESLINDE PATCH: friendly intro
     )
     
-    return RedirectResponse(url="/admin/eventos", status_code=303)
     except Exception as e:
         app_logger.error(f"Error creando evento: {e}")
         raise HTTPException(status_code=500, detail=f"Error creando evento: {e}")
+
+    # ADMIN PATCH: fix try except syntax
+    return RedirectResponse(url="/admin/eventos", status_code=303)
 
 
 @app.get("/admin/eventos/{evento_id}/editar", response_class=HTMLResponse)
