@@ -163,6 +163,16 @@ Declaro haber leído, comprendido y aceptado íntegramente el presente deslinde 
 # ------------------------------------------------------------------------------
 app = FastAPI(title="EncarreraOK - MVP deslindes")
 
+# STATIC PATCH: serve assets
+from fastapi.staticfiles import StaticFiles
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+app.mount(
+    "/assets",
+    StaticFiles(directory=os.path.join(BASE_DIR, "assets")),
+    name="assets"
+)
+# /STATIC PATCH
+
 templates_env = Environment(
     loader=DictLoader(
         {
