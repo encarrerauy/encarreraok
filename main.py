@@ -1,4 +1,4 @@
-# EncarreraOK - MVP de deslindes digitales
+﻿# EncarreraOK - MVP de deslindes digitales
 #
 # Requisitos del MVP:
 # - FastAPI + Uvicorn (sirve bajo systemd)
@@ -363,12 +363,29 @@ templates_env = Environment(
             </head>
             <body>
                 <div class="card">
+                    <!-- DESLINDE PATCH: brand header -->
+                    <div style="text-align: center; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid #eee;">
+                        <div style="font-size: 24px; font-weight: bold; color: #333; margin-bottom: 8px;">EncarreraOK</div>
+                        <!-- BRAND PATCH: add logo -->
+                    <img src="/assets/logo-encarreraok.png" alt="EncarreraOK" style="max-width:180px; width:100%; height:auto; margin-bottom:12px;">
+                    <div style="font-size: 14px; color: #666; text-transform: uppercase; letter-spacing: 1px;">Evidencia clara. Eventos seguros.</div>
+                    </div>
+                    <!-- /DESLINDE PATCH -->
+
                     <header>
                         <h1>{{ evento.nombre }}</h1>
                         <div class="event-meta">
                             📅 {{ evento.fecha|fecha_ddmmaaaa }} • 👤 {{ evento.organizador }}
                         </div>
                     </header>
+
+                    <!-- DESLINDE PATCH: friendly intro -->
+                    {% if evento.friendly_intro %}
+                    <div style="background-color: #e9ecef; border-radius: 8px; padding: 16px; margin-bottom: 24px; color: #495057; font-size: 15px; line-height: 1.5;">
+                        Gracias por tomarte este momento. Completar este deslinde es parte de una experiencia segura y responsable.
+                    </div>
+                    {% endif %}
+                    <!-- /DESLINDE PATCH -->
 
                     <div class="deslinde-box">
                         {{ deslinde_texto }}
@@ -400,14 +417,14 @@ templates_env = Environment(
                                 <div class="file-upload-container" style="margin-bottom: 12px;">
                                     <label for="doc_frente">Frente del Documento</label>
                                     <input type="file" id="doc_frente" name="doc_frente" accept="image/*" required style="width:100%">
-                                    <div class="file-hint">📸 Foto clara y legible (Máx. {{ MAX_IMAGE_DOC_MB }} MB)</div>
+                                    <div class="file-hint">📸 Foto clara y legible, sin reflejos. (Máx. {{ MAX_IMAGE_DOC_MB }} MB)</div>
                                     <div id="doc_frente_feedback" class="feedback"></div>
                                 </div>
 
                                 <div class="file-upload-container">
                                     <label for="doc_dorso">Dorso del Documento</label>
                                     <input type="file" id="doc_dorso" name="doc_dorso" accept="image/*" required style="width:100%">
-                                    <div class="file-hint">📸 Foto clara y legible (Máx. {{ MAX_IMAGE_DOC_MB }} MB)</div>
+                                    <div class="file-hint">📸 Foto clara y legible, sin reflejos. (Máx. {{ MAX_IMAGE_DOC_MB }} MB)</div>
                                     <div id="doc_dorso_feedback" class="feedback"></div>
                                 </div>
                             </div>
@@ -431,7 +448,7 @@ templates_env = Environment(
                                 <div class="file-upload-container">
                                     <label for="salud_doc">Archivo de Salud</label>
                                     <input type="file" id="salud_doc" name="salud_doc" accept="image/*" required style="width:100%">
-                                    <div class="file-hint">📸 Foto del certificado vigente (Máx. {{ MAX_IMAGE_DOC_MB }} MB)</div>
+                                    <div class="file-hint">📸 Foto completa y legible del certificado. (Máx. {{ MAX_IMAGE_DOC_MB }} MB)</div>
                                     <div id="salud_doc_feedback" class="feedback"></div>
                                 </div>
                             </div>
@@ -450,7 +467,7 @@ templates_env = Environment(
                                     </div>
 
                                     <div id="audio_container_inner">
-                                        <p style="margin-top:0; font-size:0.9rem;">Lea en voz alta el siguiente texto:</p>
+                                        <p style="margin-top:0; font-size:0.9rem;">Presiona "Grabar" y lee fuerte y claro:</p>
                                         <div class="audio-script">
                                             "Yo, <span id="nombre-script" style="font-weight:bold">[Su Nombre]</span>, declaro haber leído y aceptado el deslinde de responsabilidad."
                                         </div>
@@ -482,7 +499,7 @@ templates_env = Environment(
                                 <div class="signature-tools">
                                     <button type="button" class="btn btn-secondary btn-sm" id="clear-signature">Borrar firma</button>
                                 </div>
-                                <div class="field-help-visible">Firme dentro del recuadro</div>
+                                <div class="field-help-visible">Firme dentro del recuadro (igual que en su documento)</div>
                                 <div id="firma_feedback" class="feedback"></div>
 
                                 <div class="checkbox-wrapper">
@@ -499,7 +516,7 @@ templates_env = Environment(
                             <div class="checkbox-wrapper" style="background: #e9ecef; border: 1px solid #ced4da;">
                                 <input type="checkbox" name="acepto" id="acepto" required />
                                 <label for="acepto" style="margin:0; font-weight:bold;">
-                                    Declaro bajo juramento que los datos son reales y acepto el deslinde de responsabilidad.
+                                    Declaro bajo juramento que los datos son reales y acepto el deslinde de responsabilidad del evento <strong>{{ evento.nombre }}</strong>.
                                 </label>
                             </div>
 
@@ -761,6 +778,17 @@ templates_env = Environment(
                 </style>
             </head>
             <body>
+                <!-- ADMIN PATCH: brand header -->
+                <div style="background: #fff; padding: 1rem 1.5rem; border-bottom: 1px solid #ddd; display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; margin-left: -24px; margin-right: -24px; margin-top: -24px;">
+                    <div>
+                        <h1 style="margin: 0; font-size: 1.25rem; color: #1a1a1a;">EncarreraOK <span style="font-weight:normal; font-size:1rem; color:#666;">Admin</span></h1>
+                        <!-- BRAND PATCH: add logo -->
+                        <img src="/assets/logo-encarreraok.png" alt="EncarreraOK" style="max-width:180px; width:100%; height:auto; margin-bottom:12px;">
+                        <div style="font-size: 0.8rem; color: #666; text-transform: uppercase; letter-spacing: 1px;">Evidencia clara. Eventos seguros.</div>
+                    </div>
+                    <div style="font-size: 0.9rem; color: #666;">Usuario: <strong>{{ username }}</strong></div>
+                </div>
+                <!-- /ADMIN PATCH -->
                 <div class="card">
                     <a href="/admin/aceptaciones" class="btn-back">← Volver a lista</a>
                     <h1>Aceptación #{{ aceptacion.id }}</h1>
@@ -1006,6 +1034,17 @@ templates_env = Environment(
                 </style>
             </head>
             <body>
+                <!-- ADMIN PATCH: brand header -->
+                <div style="background: #fff; padding: 1rem 1.5rem; border-bottom: 1px solid #ddd; display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; margin-left: -24px; margin-right: -24px; margin-top: -24px;">
+                    <div>
+                        <h1 style="margin: 0; font-size: 1.25rem; color: #1a1a1a;">EncarreraOK <span style="font-weight:normal; font-size:1rem; color:#666;">Admin</span></h1>
+                        <!-- BRAND PATCH: add logo -->
+                        <img src="/assets/logo-encarreraok.png" alt="EncarreraOK" style="max-width:180px; width:100%; height:auto; margin-bottom:12px;">
+                        <div style="font-size: 0.8rem; color: #666; text-transform: uppercase; letter-spacing: 1px;">Evidencia clara. Eventos seguros.</div>
+                    </div>
+                    <div style="font-size: 0.9rem; color: #666;">Usuario: <strong>{{ username }}</strong></div>
+                </div>
+                <!-- /ADMIN PATCH -->
                 <h1>Aceptaciones</h1>
                 
                 <div class="toolbar">
@@ -1124,6 +1163,17 @@ templates_env = Environment(
             </head>
             <body>
                 <div class="container">
+                    <!-- ADMIN PATCH: brand header -->
+                    <div style="background: #fff; padding: 1rem 0; border-bottom: 1px solid #ddd; display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;">
+                        <div>
+                            <h1 style="margin: 0; font-size: 1.25rem; color: #1a1a1a;">EncarreraOK <span style="font-weight:normal; font-size:1rem; color:#666;">Admin</span></h1>
+                            <!-- BRAND PATCH: add logo -->
+                            <img src="/assets/logo-encarreraok.png" alt="EncarreraOK" style="max-width:180px; width:100%; height:auto; margin-bottom:12px;">
+                            <div style="font-size: 0.8rem; color: #666; text-transform: uppercase; letter-spacing: 1px;">Evidencia clara. Eventos seguros.</div>
+                        </div>
+                        <div style="font-size: 0.9rem; color: #666;">Usuario: <strong>{{ username }}</strong></div>
+                    </div>
+                    <!-- /ADMIN PATCH -->
                     <a href="/admin/aceptaciones?evento_id={{ evento.id }}" class="btn btn-secondary" style="margin-bottom: 20px;">← Volver</a>
                     
                     <h1>Gestión de Eliminación: {{ evento.nombre }}</h1>
@@ -1195,6 +1245,17 @@ templates_env = Environment(
             </head>
             <body>
                 <div class="container">
+                    <!-- ADMIN PATCH: brand header -->
+                    <div style="background: #fff; padding: 1rem 0; border-bottom: 1px solid #ddd; display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;">
+                        <div>
+                            <h1 style="margin: 0; font-size: 1.25rem; color: #1a1a1a;">EncarreraOK <span style="font-weight:normal; font-size:1rem; color:#666;">Admin</span></h1>
+                            <!-- BRAND PATCH: add logo -->
+                            <img src="/assets/logo-encarreraok.png" alt="EncarreraOK" style="max-width:180px; width:100%; height:auto; margin-bottom:12px;">
+                            <div style="font-size: 0.8rem; color: #666; text-transform: uppercase; letter-spacing: 1px;">Evidencia clara. Eventos seguros.</div>
+                        </div>
+                        <div style="font-size: 0.9rem; color: #666;">Usuario: <strong>{{ username }}</strong></div>
+                    </div>
+                    <!-- /ADMIN PATCH -->
                     <a href="/admin/home" class="back-link">← Volver al Dashboard</a>
                     <h1>Búsqueda de Deslindes</h1>
                     
@@ -1271,6 +1332,17 @@ templates_env = Environment(
                 </style>
             </head>
             <body>
+                <!-- ADMIN PATCH: brand header -->
+                <div style="background: #fff; padding: 1rem 1.5rem; border-bottom: 1px solid #ddd; display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; margin-left: -24px; margin-right: -24px; margin-top: -24px;">
+                    <div>
+                        <h1 style="margin: 0; font-size: 1.25rem; color: #1a1a1a;">EncarreraOK <span style="font-weight:normal; font-size:1rem; color:#666;">Admin</span></h1>
+                        <!-- BRAND PATCH: add logo -->
+                        <img src="/assets/logo-encarreraok.png" alt="EncarreraOK" style="max-width:180px; width:100%; height:auto; margin-bottom:12px;">
+                        <div style="font-size: 0.8rem; color: #666; text-transform: uppercase; letter-spacing: 1px;">Evidencia clara. Eventos seguros.</div>
+                    </div>
+                    <div style="font-size: 0.9rem; color: #666;">Usuario: <strong>{{ username }}</strong></div>
+                </div>
+                <!-- /ADMIN PATCH -->
                 <div class="toolbar">
                     <h1>Gestión de Eventos</h1>
                     <div>
@@ -1355,6 +1427,17 @@ templates_env = Environment(
                 </style>
             </head>
             <body>
+                <!-- ADMIN PATCH: brand header -->
+                <div style="background: #fff; padding: 1rem 1.5rem; border-bottom: 1px solid #ddd; display: flex; align-items: center; justify-content: space-between;">
+                    <div>
+                        <h1 style="margin: 0; font-size: 1.25rem; color: #1a1a1a;">EncarreraOK <span style="font-weight:normal; font-size:1rem; color:#666;">Admin</span></h1>
+                        <!-- BRAND PATCH: add logo -->
+                        <img src="/assets/logo-encarreraok.png" alt="EncarreraOK" style="max-width:180px; width:100%; height:auto; margin-bottom:12px;">
+                        <div style="font-size: 0.8rem; color: #666; text-transform: uppercase; letter-spacing: 1px;">Evidencia clara. Eventos seguros.</div>
+                    </div>
+                    <div style="font-size: 0.9rem; color: #666;">Usuario: <strong>{{ username }}</strong></div>
+                </div>
+                <!-- /ADMIN PATCH -->
                 <div class="header">
                     <div style="display: flex; align-items: center; gap: 16px;">
                         <a href="/admin/eventos" class="btn btn-outline">← Volver</a>
@@ -1481,6 +1564,17 @@ templates_env = Environment(
                 </style>
             </head>
             <body>
+                <!-- ADMIN PATCH: brand header -->
+                <div style="background: #fff; padding: 1rem 1.5rem; border-bottom: 1px solid #ddd; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;">
+                    <div>
+                        <h1 style="margin: 0; font-size: 1.25rem; color: #1a1a1a;">EncarreraOK <span style="font-weight:normal; font-size:1rem; color:#666;">Admin</span></h1>
+                        <!-- BRAND PATCH: add logo -->
+                        <img src="/assets/logo-encarreraok.png" alt="EncarreraOK" style="max-width:180px; width:100%; height:auto; margin-bottom:12px;">
+                        <div style="font-size: 0.8rem; color: #666; text-transform: uppercase; letter-spacing: 1px;">Evidencia clara. Eventos seguros.</div>
+                    </div>
+                    <div style="font-size: 0.9rem; color: #666;">Usuario: <strong>{{ username }}</strong></div>
+                </div>
+                <!-- /ADMIN PATCH -->
                 <div class="header">
                     <h2>{{ aceptacion.nombre_participante }} ({{ aceptacion.documento }})</h2>
                     <a href="/admin/evento/{{ evento.id }}/monitor" class="btn btn-close">✕ Cerrar</a>
@@ -1670,6 +1764,17 @@ templates_env = Environment(
                 </style>
             </head>
             <body>
+                <!-- ADMIN PATCH: brand header -->
+                <div style="background: #fff; padding: 1rem 0; border-bottom: 1px solid #ddd; display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;">
+                    <div>
+                        <h1 style="margin: 0; font-size: 1.25rem; color: #1a1a1a;">EncarreraOK <span style="font-weight:normal; font-size:1rem; color:#666;">Admin</span></h1>
+                        <!-- BRAND PATCH: add logo -->
+                        <img src="/assets/logo-encarreraok.png" alt="EncarreraOK" style="max-width:180px; width:100%; height:auto; margin-bottom:12px;">
+                        <div style="font-size: 0.8rem; color: #666; text-transform: uppercase; letter-spacing: 1px;">Evidencia clara. Eventos seguros.</div>
+                    </div>
+                    <div style="font-size: 0.9rem; color: #666;">Usuario: <strong>{{ username }}</strong></div>
+                </div>
+                <!-- /ADMIN PATCH -->
                 <h1>{{ 'Editar' if evento else 'Crear Nuevo' }} Evento</h1>
                 
                 <div class="card">
@@ -1707,6 +1812,12 @@ templates_env = Environment(
                                 <input type="checkbox" id="req_audio" name="req_audio" value="1" {{ 'checked' if (evento and evento.req_audio) else '' }}>
                                 <label for="req_audio">Requiere Audio Aceptación</label>
                             </div>
+                            <!-- DESLINDE PATCH: friendly intro -->
+                            <div class="checkbox-group">
+                                <input type="checkbox" id="friendly_intro" name="friendly_intro" value="1" {{ 'checked' if (evento and evento.friendly_intro) else '' }}>
+                                <label for="friendly_intro">Mostrar Intro Amigable</label>
+                            </div>
+                            <!-- /DESLINDE PATCH -->
                         </div>
 
                         <div class="form-group">
@@ -1866,6 +1977,14 @@ def init_db() -> None:
             cur.execute("ALTER TABLE eventos ADD COLUMN deslinde_version TEXT DEFAULT 'v1_1'")
         except sqlite3.OperationalError:
             pass
+        
+        # DESLINDE PATCH: friendly intro flag
+        # Migración: friendly_intro en eventos (default 0)
+        try:
+            cur.execute("ALTER TABLE eventos ADD COLUMN friendly_intro INTEGER DEFAULT 0 CHECK (friendly_intro IN (0,1))")
+        except sqlite3.OperationalError:
+            pass
+        # /DESLINDE PATCH
 
         # Tabla de aceptaciones
         cur.execute(
@@ -2082,7 +2201,7 @@ def listar_eventos() -> List[Dict[str, Any]]:
     conn = get_connection()
     try:
         cur = conn.cursor()
-        cur.execute("SELECT id, nombre, fecha, organizador, activo, req_firma, req_documento, req_audio, deslinde_version FROM eventos ORDER BY id DESC")
+        cur.execute("SELECT id, nombre, fecha, organizador, activo, req_firma, req_documento, req_audio, deslinde_version, friendly_intro FROM eventos ORDER BY id DESC")
         rows = cur.fetchall()
         return [dict(r) for r in rows]
     finally:
@@ -2098,7 +2217,8 @@ def crear_evento(
     req_documento: int,
     req_salud: int,
     req_audio: int,
-    deslinde_version: str
+    deslinde_version: str,
+    friendly_intro: int # DESLINDE PATCH: friendly intro
 ) -> int:
     """Crea un nuevo evento y devuelve su ID."""
     conn = get_connection()
@@ -2107,10 +2227,10 @@ def crear_evento(
         cur.execute(
             """
             INSERT INTO eventos (
-                nombre, fecha, organizador, activo, req_firma, req_documento, req_salud, req_audio, deslinde_version
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                nombre, fecha, organizador, activo, req_firma, req_documento, req_salud, req_audio, deslinde_version, friendly_intro
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (nombre, fecha, organizador, activo, req_firma, req_documento, req_salud, req_audio, deslinde_version)
+            (nombre, fecha, organizador, activo, req_firma, req_documento, req_salud, req_audio, deslinde_version, friendly_intro)
         )
         conn.commit()
         evento_id = cur.lastrowid
@@ -2130,7 +2250,8 @@ def actualizar_evento(
     req_documento: int,
     req_salud: int,
     req_audio: int,
-    deslinde_version: str
+    deslinde_version: str,
+    friendly_intro: int # DESLINDE PATCH: friendly intro
 ) -> bool:
     """Actualiza un evento existente."""
     conn = get_connection()
@@ -2139,10 +2260,10 @@ def actualizar_evento(
         cur.execute(
             """
             UPDATE eventos 
-            SET nombre=?, fecha=?, organizador=?, activo=?, req_firma=?, req_documento=?, req_salud=?, req_audio=?, deslinde_version=?
+            SET nombre=?, fecha=?, organizador=?, activo=?, req_firma=?, req_documento=?, req_salud=?, req_audio=?, deslinde_version=?, friendly_intro=?
             WHERE id=?
             """,
-            (nombre, fecha, organizador, activo, req_firma, req_documento, req_salud, req_audio, deslinde_version, evento_id)
+            (nombre, fecha, organizador, activo, req_firma, req_documento, req_salud, req_audio, deslinde_version, friendly_intro, evento_id)
         )
         conn.commit()
         if cur.rowcount > 0:
@@ -3056,6 +3177,7 @@ class Evento(BaseModel):
     req_firma: bool = False
     req_documento: bool = False
     req_audio: bool = False
+    friendly_intro: bool = False # DESLINDE PATCH: friendly intro
 
 
 class Aceptacion(BaseModel):
@@ -3121,6 +3243,7 @@ def mostrar_formulario(evento_id: int, request: Request) -> HTMLResponse:
     evento["req_documento"] = bool(evento.get("req_documento", 0))
     evento["req_audio"] = bool(evento.get("req_audio", 0))
     evento["req_salud"] = bool(evento.get("req_salud", 0))
+    evento["friendly_intro"] = bool(evento.get("friendly_intro", 0)) # DESLINDE PATCH: friendly intro
 
     # Obtener texto del deslinde según versión
     version = evento.get("deslinde_version") or DEFAULT_DESLINDE_VERSION
@@ -3715,7 +3838,12 @@ def admin_home(username: str = Depends(get_current_username)) -> HTMLResponse:
     </head>
     <body>
         <div class="header">
-            <h1>EncarreraOK Admin</h1>
+            <div>
+                <h1 style="margin:0; font-size: 1.5rem;">EncarreraOK <span style="font-weight:normal; font-size:1rem; color:#666;">Admin</span></h1>
+                <!-- BRAND PATCH: add logo -->
+                <img src="/assets/logo-encarreraok.png" alt="EncarreraOK" style="max-width:180px; width:100%; height:auto; margin-bottom:12px;">
+                <div style="font-size: 0.8rem; color: #666; text-transform: uppercase; letter-spacing: 1px;">Evidencia clara. Eventos seguros.</div>
+            </div>
             <div class="user-info">Usuario: <strong>{{ username }}</strong></div>
         </div>
 
@@ -3792,7 +3920,7 @@ def admin_search(q: Optional[str] = None, username: str = Depends(get_current_us
         resultados = listar_aceptaciones(query=q)[:50]
     
     template = templates_env.get_template("admin_busqueda_deslindes.html")
-    html = template.render(query=q, resultados=resultados)
+    html = template.render(query=q, resultados=resultados, username=username)
     return HTMLResponse(content=html)
 # /ADMIN PATCH
 
@@ -3804,7 +3932,7 @@ def admin_eventos(username: str = Depends(get_current_username)) -> HTMLResponse
     """Listado de eventos para administración."""
     eventos = listar_eventos()
     template = templates_env.get_template("admin_eventos_lista.html")
-    html = template.render(eventos=eventos)
+    html = template.render(eventos=eventos, username=username)
     return HTMLResponse(content=html)
 
 
@@ -3812,7 +3940,7 @@ def admin_eventos(username: str = Depends(get_current_username)) -> HTMLResponse
 def admin_evento_nuevo_form(username: str = Depends(get_current_username)) -> HTMLResponse:
     """Formulario para crear evento."""
     template = templates_env.get_template("admin_eventos_form.html")
-    html = template.render(evento=None)
+    html = template.render(evento=None, username=username)
     return HTMLResponse(content=html)
 
 
@@ -3826,7 +3954,8 @@ def admin_evento_nuevo_post(
     req_documento: Optional[int] = Form(0),
     req_salud: Optional[int] = Form(0),
     req_audio: Optional[int] = Form(0),
-    deslinde_version: str = Form(...),
+    friendly_intro: Optional[int] = Form(0), # DESLINDE PATCH: friendly intro
+    deslinde_version: str = Form("v1_1"),
     username: str = Depends(get_current_username)
 ):
     """Procesa creación de evento."""
@@ -3852,11 +3981,13 @@ def admin_evento_nuevo_post(
             activo=activo or 0,
             req_firma=req_firma or 0,
             req_documento=req_documento or 0,
-            req_salud=req_salud or 0,
-            req_audio=req_audio or 0,
-            deslinde_version=deslinde_version
-        )
-        return RedirectResponse(url="/admin/eventos", status_code=303)
+        req_salud=req_salud or 0,
+        req_audio=req_audio or 0,
+        deslinde_version=deslinde_version,
+        friendly_intro=friendly_intro or 0 # DESLINDE PATCH: friendly intro
+    )
+    
+    return RedirectResponse(url="/admin/eventos", status_code=303)
     except Exception as e:
         app_logger.error(f"Error creando evento: {e}")
         raise HTTPException(status_code=500, detail=f"Error creando evento: {e}")
@@ -3870,7 +4001,7 @@ def admin_evento_editar_form(evento_id: int, username: str = Depends(get_current
         raise HTTPException(status_code=404, detail="Evento no encontrado")
         
     template = templates_env.get_template("admin_eventos_form.html")
-    html = template.render(evento=evento)
+    html = template.render(evento=evento, username=username)
     return HTMLResponse(content=html)
 
 
@@ -3885,6 +4016,7 @@ def admin_evento_editar_post(
     req_documento: Optional[int] = Form(0),
     req_salud: Optional[int] = Form(0),
     req_audio: Optional[int] = Form(0),
+    friendly_intro: Optional[int] = Form(0), # DESLINDE PATCH: friendly intro
     deslinde_version: str = Form(...),
     username: str = Depends(get_current_username)
 ):
@@ -3913,7 +4045,8 @@ def admin_evento_editar_post(
             req_documento=req_documento or 0,
             req_salud=req_salud or 0,
             req_audio=req_audio or 0,
-            deslinde_version=deslinde_version
+            deslinde_version=deslinde_version,
+            friendly_intro=friendly_intro or 0 # DESLINDE PATCH: friendly intro
         )
         
         return RedirectResponse(url="/admin/eventos", status_code=303)
@@ -3940,7 +4073,8 @@ def admin_aceptaciones(
     context = {
         "aceptaciones": datos,
         "eventos": eventos,
-        "filtro_evento_id": evento_id
+        "filtro_evento_id": evento_id,
+        "username": username
     }
     
     template = templates_env.get_template("admin_aceptaciones.html")
@@ -4344,7 +4478,8 @@ def admin_gestion_eliminacion(
     template = templates_env.get_template("admin_gestion_eliminacion.html")
     html = template.render(
         evento=evento,
-        total_aceptaciones=len(aceptaciones)
+        total_aceptaciones=len(aceptaciones),
+        username=username
     )
     return HTMLResponse(content=html)
 
@@ -4450,7 +4585,7 @@ def admin_aceptacion_detalle(aceptacion_id: int, username: str = Depends(get_cur
         raise HTTPException(status_code=404, detail="Aceptación no encontrada")
     
     template = templates_env.get_template("admin_aceptacion_detalle.html")
-    html = template.render(aceptacion=aceptacion)
+    html = template.render(aceptacion=aceptacion, username=username)
     return HTMLResponse(content=html)
 
 
@@ -4505,7 +4640,8 @@ def admin_monitor_evento(
     html = template.render(
         evento=evento,
         aceptaciones=aceptaciones,
-        query=q
+        query=q,
+        username=username
     )
     return HTMLResponse(content=html)
 
@@ -4533,7 +4669,8 @@ def admin_preview_evento(
     template = templates_env.get_template("admin_preview.html")
     html = template.render(
         evento=evento,
-        aceptacion=aceptacion
+        aceptacion=aceptacion,
+        username=username
     )
     return HTMLResponse(content=html)
 
@@ -4774,3 +4911,4 @@ if __name__ == "__main__":
 # - Descarga con watermark opcional
 # - Política de retención configurable por evento
 # ==============================================================================
+
