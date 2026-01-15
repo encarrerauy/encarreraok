@@ -351,7 +351,7 @@ sudo systemctl status encarreraok
 ```
 
 
-
+cd /var/www/encarreraok
 git pull origin main
 sudo systemctl restart encarreraok
 sudo systemctl status encarreraok
