@@ -3416,6 +3416,31 @@ def procesar_aceptacion(
         # Normalización de documento: quitar puntos, guiones y espacios; a mayúsculas
         documento_norm = normalizar_documento_helper(documento)
         
+        # PARTICIPANTE PATCH: prevent duplicate per event
+        conn_dup = None
+        try:
+            conn_dup = get_connection()
+            cur_dup = conn_dup.cursor()
+            cur_dup.execute(
+                "SELECT 1 FROM aceptaciones WHERE evento_id = ? AND documento_norm = ? LIMIT 1",
+                (evento_id, documento_norm),
+            )
+            if cur_dup.fetchone():
+                app_logger.info(
+                    f"[{request_id}] Intento de doble aceptación bloqueado - evento_id={evento_id}, documento_norm={documento_norm}"
+                )
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "Ya existe un deslinde registrado para este documento en este evento. "
+                        "Si creés que se trata de un error, comunicate con el organizador."
+                    ),
+                )
+        finally:
+            if conn_dup is not None:
+                conn_dup.close()
+        # /PARTICIPANTE PATCH: prevent duplicate per event
+        
         # Obtiene texto y hash del deslinde que se está aceptando
         version = evento.get("deslinde_version") or DEFAULT_DESLINDE_VERSION
         texto_base = cargar_deslinde(version)
