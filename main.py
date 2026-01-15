@@ -1460,6 +1460,10 @@ templates_env = Environment(
                 </div>
 
                 <div class="container">
+                    <!-- ADMIN PATCH: pagination + counter -->
+                    <div style="margin-bottom: 12px; font-size: 0.95rem; color: #333;">
+                        Deslindes registrados: <strong>{{ total_deslindes }}</strong>
+                    </div>
                     <div class="card">
                         <table>
                             <thead>
@@ -1509,7 +1513,25 @@ templates_env = Environment(
                                 {% endfor %}
                             </tbody>
                         </table>
+                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-top: 1px solid #eee;">
+                            <div style="font-size: 0.9rem; color: #555;">
+                                Página {{ page }}
+                            </div>
+                            <div style="display: flex; gap: 8px;">
+                                {% if has_prev %}
+                                <a href="/admin/evento/{{ evento.id }}/monitor?{% if query %}q={{ query }}&{% endif %}page={{ page - 1 }}" class="btn btn-outline">Anterior</a>
+                                {% else %}
+                                <span class="btn btn-outline" style="opacity: 0.5; cursor: default; pointer-events: none;">Anterior</span>
+                                {% endif %}
+                                {% if has_next %}
+                                <a href="/admin/evento/{{ evento.id }}/monitor?{% if query %}q={{ query }}&{% endif %}page={{ page + 1 }}" class="btn btn-primary">Siguiente</a>
+                                {% else %}
+                                <span class="btn btn-outline" style="opacity: 0.5; cursor: default; pointer-events: none;">Siguiente</span>
+                                {% endif %}
+                            </div>
+                        </div>
                     </div>
+                    <!-- /ADMIN PATCH: pagination + counter -->
                 </div>
                 <script>
                     const searchBox = document.querySelector('input[name="q"]');
@@ -4634,6 +4656,7 @@ def admin_revocar_token(
 def admin_monitor_evento(
     evento_id: int,
     q: Optional[str] = None,
+    page: int = 1,
     username: str = Depends(get_current_username)
 ) -> HTMLResponse:
     """
@@ -4644,15 +4667,103 @@ def admin_monitor_evento(
     if not evento:
         raise HTTPException(status_code=404, detail="Evento no encontrado")
         
-    # Obtener aceptaciones (filtradas por query si existe)
-    aceptaciones = listar_aceptaciones(evento_id=evento_id, query=q)
+    # ADMIN PATCH: pagination + counter
+    page_size = 25
+    if page is None or page < 1:
+        page = 1
+    offset = (page - 1) * page_size
+
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+
+        # Contador total de deslindes del evento actual (sin filtrar por búsqueda)
+        cur.execute(
+            "SELECT COUNT(*) AS c FROM aceptaciones WHERE evento_id = ?",
+            (evento_id,),
+        )
+        row = cur.fetchone()
+        total_deslindes = row["c"] if row else 0
+
+        # Construir condiciones compartidas para conteo filtrado y listado paginado
+        where_clauses = ["a.evento_id = ?"]
+        params_base: List[Any] = [evento_id]
+
+        if q:
+            q_norm = "".join(filter(str.isdigit, q))
+            clauses = ["a.nombre_participante LIKE ?"]
+            params_q: List[Any] = [f"%{q}%"]
+
+            if len(q_norm) >= 3:
+                clauses.append("a.documento_norm LIKE ?")
+                params_q.append(f"%{q_norm}%")
+
+            where_clauses.append(f"({' OR '.join(clauses)})")
+            params_base.extend(params_q)
+
+        where_sql = " AND ".join(where_clauses)
+
+        # Conteo filtrado (para saber si hay página siguiente)
+        sql_count = f"""
+            SELECT COUNT(*) AS c
+            FROM aceptaciones a
+            JOIN eventos e ON e.id = a.evento_id
+            WHERE {where_sql}
+        """
+        cur.execute(sql_count, tuple(params_base))
+        row = cur.fetchone()
+        total_filtrado = row["c"] if row else 0
+
+        # Listado paginado, ordenado por fecha de aceptación (más recientes primero)
+        sql_list = f"""
+            SELECT
+                a.id,
+                a.evento_id,
+                e.nombre AS evento_nombre,
+                e.fecha AS evento_fecha,
+                e.organizador AS evento_organizador,
+                a.nombre_participante,
+                a.documento,
+                a.fecha_hora,
+                a.ip,
+                a.user_agent,
+                a.deslinde_hash_sha256,
+                a.firma_path,
+                a.doc_frente_path,
+                a.doc_dorso_path,
+                a.audio_path,
+                a.salud_doc_path,
+                a.salud_doc_tipo,
+                a.audio_exento,
+                a.firma_asistida
+            FROM aceptaciones a
+            JOIN eventos e ON e.id = a.evento_id
+            WHERE {where_sql}
+            ORDER BY a.fecha_hora DESC
+            LIMIT ? OFFSET ?
+        """
+        params_list = list(params_base)
+        params_list.extend([page_size, offset])
+        cur.execute(sql_list, tuple(params_list))
+        rows = cur.fetchall()
+        aceptaciones = [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+    has_prev = page > 1
+    has_next = page * page_size < total_filtrado
+    # /ADMIN PATCH
     
     template = templates_env.get_template("admin_monitor_evento.html")
     html = template.render(
         evento=evento,
         aceptaciones=aceptaciones,
         query=q,
-        username=username
+        username=username,
+        total_deslindes=total_deslindes,
+        page=page,
+        has_prev=has_prev,
+        has_next=has_next,
     )
     return HTMLResponse(content=html)
 
