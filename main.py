@@ -1,4 +1,4 @@
-﻿# EncarreraOK - MVP de deslindes digitales
+# EncarreraOK - MVP de deslindes digitales
 #
 # Requisitos del MVP:
 # - FastAPI + Uvicorn (sirve bajo systemd)
@@ -888,6 +888,15 @@ templates_env = Environment(
                             <button type="submit" class="btn" style="background: #dc3545; color: white;">Revocar Token</button>
                         </form>
                         {% endif %}
+                        
+                        <!-- ADMIN PATCH: invalidar button -->
+                        {% if aceptacion.valido != 0 %}
+                        <form action="/admin/aceptaciones/{{ aceptacion.id }}/invalidar" method="post" onsubmit="return confirm('¿Seguro que desea INVALIDAR este deslinde? Esto permitirá que el participante firme uno nuevo.');" style="margin: 0;">
+                            <button type="submit" class="btn" style="background: #6c757d; color: white;">⛔ Invalidar Deslinde</button>
+                        </form>
+                        {% endif %}
+                        <!-- /ADMIN PATCH -->
+
                     </div>
 
                     <h2>Evidencias</h2>
@@ -2459,7 +2468,8 @@ def get_aceptacion_detalle(aceptacion_id: int) -> Optional[Dict[str, Any]]:
                 a.pdf_token_expires_at,
                 a.pdf_token_revoked,
                 a.pdf_last_access_at,
-                a.pdf_access_count
+                a.pdf_access_count,
+                a.valido
             FROM aceptaciones a
             JOIN eventos e ON e.id = a.evento_id
             WHERE a.id = ?
@@ -3421,8 +3431,9 @@ def procesar_aceptacion(
         try:
             conn_dup = get_connection()
             cur_dup = conn_dup.cursor()
+            # Check for existing valid acceptance
             cur_dup.execute(
-                "SELECT 1 FROM aceptaciones WHERE evento_id = ? AND documento_norm = ? LIMIT 1",
+                "SELECT 1 FROM aceptaciones WHERE evento_id = ? AND documento_norm = ? AND valido = 1 LIMIT 1",
                 (evento_id, documento_norm),
             )
             if cur_dup.fetchone():
@@ -4671,6 +4682,40 @@ def admin_revocar_token(
         content=f"""
         <script>
             alert("{msg}");
+            window.location.href = "/admin/aceptaciones/{aceptacion_id}";
+        </script>
+        """
+    )
+
+
+@app.post("/admin/aceptaciones/{aceptacion_id}/invalidar", response_class=HTMLResponse)
+def admin_invalidar_deslinde(
+    aceptacion_id: int,
+    username: str = Depends(get_current_username)
+) -> HTMLResponse:
+    """
+    Invalida lógicamente un deslinde (valido=0).
+    No elimina el registro ni los archivos.
+    """
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        # Verificar existencia
+        cur.execute("SELECT id FROM aceptaciones WHERE id = ?", (aceptacion_id,))
+        if not cur.fetchone():
+             raise HTTPException(status_code=404, detail="Aceptación no encontrada")
+        
+        # Invalidate
+        cur.execute("UPDATE aceptaciones SET valido = 0 WHERE id = ?", (aceptacion_id,))
+        conn.commit()
+        app_logger.info(f"Deslinde invalidado manualmente por admin: id={aceptacion_id}, user={username}")
+    finally:
+        conn.close()
+
+    return HTMLResponse(
+        content=f"""
+        <script>
+            alert("Deslinde invalidado correctamente. El participante ya puede firmar nuevamente.");
             window.location.href = "/admin/aceptaciones/{aceptacion_id}";
         </script>
         """
