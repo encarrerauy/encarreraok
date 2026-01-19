@@ -1955,6 +1955,39 @@ def get_connection() -> sqlite3.Connection:
     return conn
 
 
+# ------------------------------------------------------------------------------
+# MIGRACIONES Y ESQUEMA (SQLite)
+# ------------------------------------------------------------------------------
+# REGLA DE PROYECTO:
+# - SQLite NO usa ORM ni migraciones externas.
+# - Todo cambio de esquema debe:
+#     1) Tener migración automática en startup (ensure_schema_migrations).
+#     2) Tener código defensivo si la columna aún no existe.
+#     3) Nunca provocar un error 500 en runtime.
+# NO cambiar comportamiento funcional del sistema.
+# NO agregar dependencias externas.
+# NO usar Alembic.
+# NO usar ORM.
+
+def ensure_schema_migrations(conn: sqlite3.Connection) -> None:
+    """
+    Garantiza que el esquema de la base de datos esté actualizado.
+    Ejecuta migraciones idempotentes y seguras al inicio.
+    """
+    cur = conn.cursor()
+    
+    # TAREA 2: Migración automática columna 'valido'
+    try:
+        cur.execute("PRAGMA table_info(aceptaciones)")
+        columns = [info[1] for info in cur.fetchall()]
+        
+        if "valido" not in columns:
+            app_logger.info("Iniciando migración: agregando columna 'valido' a 'aceptaciones'")
+            cur.execute("ALTER TABLE aceptaciones ADD COLUMN valido INTEGER DEFAULT 1")
+            app_logger.info("Migración aplicada: columna valido agregada")
+    except sqlite3.OperationalError as e:
+        app_logger.error(f"Error en migración de esquema: {e}")
+
 def init_db() -> None:
     """
     Inicializa la base de datos y aplica migraciones manuales si es necesario.
@@ -1962,6 +1995,9 @@ def init_db() -> None:
     ensure_storage()
     conn = get_connection()
     try:
+        # TAREA 2: Asegurar migraciones antes de cualquier otra operación
+        ensure_schema_migrations(conn)
+        
         cur = conn.cursor()
         # Tabla de eventos
         cur.execute(
@@ -2225,6 +2261,38 @@ def insertar_aceptacion(
         return cur.lastrowid
     finally:
         conn.close()
+
+
+
+def aceptacion_existente(conn: sqlite3.Connection, evento_id: int, documento_norm: str) -> bool:
+    """
+    TAREA 1: Código defensivo para verificar duplicados.
+    Detecta si la columna 'valido' existe antes de usarla.
+    """
+    if not documento_norm:
+        return False
+        
+    cur = conn.cursor()
+    
+    # Detectar si existe columna 'valido'
+    cur.execute("PRAGMA table_info(aceptaciones)")
+    columns = [info[1] for info in cur.fetchall()]
+    has_valido = "valido" in columns
+    
+    if has_valido:
+        # Si existe, filtrar por valido=1
+        cur.execute(
+            "SELECT 1 FROM aceptaciones WHERE evento_id = ? AND documento_norm = ? AND valido = 1 LIMIT 1",
+            (evento_id, documento_norm)
+        )
+    else:
+        # Si NO existe, usar query legacy (compatible)
+        cur.execute(
+            "SELECT 1 FROM aceptaciones WHERE evento_id = ? AND documento_norm = ? LIMIT 1",
+            (evento_id, documento_norm)
+        )
+        
+    return cur.fetchone() is not None
 
 
 def listar_eventos() -> List[Dict[str, Any]]:
@@ -3416,6 +3484,15 @@ def procesar_aceptacion(
         # Normalización de documento: quitar puntos, guiones y espacios; a mayúsculas
         documento_norm = normalizar_documento_helper(documento)
         
+        # TAREA 1: Validación de duplicados defensiva
+        conn = get_connection()
+        try:
+            if aceptacion_existente(conn, evento_id, documento_norm):
+                app_logger.warning(f"[{request_id}] Intento de duplicado bloqueado: evento={evento_id}, doc={documento_norm}")
+                raise HTTPException(status_code=400, detail="Ya existe una aceptación registrada para este documento en este evento.")
+        finally:
+            conn.close()
+
         # Obtiene texto y hash del deslinde que se está aceptando
         version = evento.get("deslinde_version") or DEFAULT_DESLINDE_VERSION
         texto_base = cargar_deslinde(version)
