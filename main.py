@@ -123,6 +123,7 @@ LEGAL_DIR = os.environ.get("ENCARRERAOK_LEGAL_DIR", "legal")
 DESLINDES_CONFIG = {
     "v1_1": "deslinde_v1_1_ligero.txt",
     "v2_0": "deslinde_v2_0_legal_fuerte.txt",
+    "v3_0": "deslinde_v3_0_legal_full.txt",
 }
 DEFAULT_DESLINDE_VERSION = "v1_1"
 
@@ -1985,6 +1986,14 @@ def ensure_schema_migrations(conn: sqlite3.Connection) -> None:
             app_logger.info("Iniciando migración: agregando columna 'valido' a 'aceptaciones'")
             cur.execute("ALTER TABLE aceptaciones ADD COLUMN valido INTEGER DEFAULT 1")
             app_logger.info("Migración aplicada: columna valido agregada")
+            
+        # TAREA 3 (User Request): Migración columna 'deslinde_version'
+        if "deslinde_version" not in columns:
+            app_logger.info("Iniciando migración: agregando columna 'deslinde_version' a 'aceptaciones'")
+            # Default v1_1 para registros viejos
+            cur.execute(f"ALTER TABLE aceptaciones ADD COLUMN deslinde_version TEXT DEFAULT '{DEFAULT_DESLINDE_VERSION}'")
+            app_logger.info("Migración aplicada: columna deslinde_version agregada")
+            
     except sqlite3.OperationalError as e:
         app_logger.error(f"Error en migración de esquema: {e}")
 
@@ -2244,6 +2253,7 @@ def insertar_aceptacion(
     firma_asistida: int = 0,
     pdf_token: Optional[str] = None,
     documento_norm: Optional[str] = None,
+    deslinde_version: str = DEFAULT_DESLINDE_VERSION,
 ) -> int:
     """Inserta una aceptación y devuelve el ID creado."""
     conn = get_connection()
@@ -2252,10 +2262,10 @@ def insertar_aceptacion(
         cur.execute(
             """
             INSERT INTO aceptaciones (
-                evento_id, nombre_participante, documento, fecha_hora, ip, user_agent, deslinde_hash_sha256, firma_path, doc_frente_path, doc_dorso_path, audio_path, salud_doc_path, salud_doc_tipo, audio_exento, firma_asistida, pdf_token, documento_norm
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                evento_id, nombre_participante, documento, fecha_hora, ip, user_agent, deslinde_hash_sha256, firma_path, doc_frente_path, doc_dorso_path, audio_path, salud_doc_path, salud_doc_tipo, audio_exento, firma_asistida, pdf_token, documento_norm, deslinde_version
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (evento_id, nombre_participante, documento, fecha_hora, ip, user_agent, deslinde_hash_sha256, firma_path, doc_frente_path, doc_dorso_path, audio_path, salud_doc_path, salud_doc_tipo, audio_exento, firma_asistida, pdf_token, documento_norm),
+            (evento_id, nombre_participante, documento, fecha_hora, ip, user_agent, deslinde_hash_sha256, firma_path, doc_frente_path, doc_dorso_path, audio_path, salud_doc_path, salud_doc_tipo, audio_exento, firma_asistida, pdf_token, documento_norm, deslinde_version),
         )
         conn.commit()
         return cur.lastrowid
@@ -3757,6 +3767,7 @@ def procesar_aceptacion(
             firma_asistida=firma_asistida or 0,
             pdf_token=pdf_token,
             documento_norm=documento_norm,
+            deslinde_version=version,
         )
         
         # Log final con todos los datos
