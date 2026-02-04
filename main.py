@@ -1857,6 +1857,7 @@ templates_env = Environment(
                             <select id="deslinde_version" name="deslinde_version" required>
                                 <option value="v1_1" {{ 'selected' if (evento and evento.deslinde_version == 'v1_1') else '' }}>v1_1 (Estándar)</option>
                                 <option value="v2_0" {{ 'selected' if (evento and evento.deslinde_version == 'v2_0') else '' }}>v2_0 (Actualizado)</option>
+                                <option value="v3_0" {{ 'selected' if (evento and evento.deslinde_version == 'v3_0') else '' }}>v3_0 (Legal Completo)</option>
                             </select>
                         </div>
 
@@ -4090,8 +4091,8 @@ def admin_evento_nuevo_post(
         except ValueError:
             raise HTTPException(status_code=400, detail="Formato de fecha inválido (YYYY-MM-DD)")
             
-        if deslinde_version not in ["v1_1", "v2_0"]:
-             raise HTTPException(status_code=400, detail="Versión de deslinde inválida")
+        if deslinde_version not in ["v1_1", "v2_0", "v3_0"]:
+            raise HTTPException(status_code=400, detail="Versión de deslinde inválida")
 
         crear_evento(
             nombre=nombre.strip(),
@@ -4153,8 +4154,8 @@ def admin_evento_editar_post(
         except ValueError:
             raise HTTPException(status_code=400, detail="Formato de fecha inválido")
             
-        if deslinde_version not in ["v1_1", "v2_0"]:
-             raise HTTPException(status_code=400, detail="Versión de deslinde inválida")
+        if deslinde_version not in ["v1_1", "v2_0", "v3_0"]:
+            raise HTTPException(status_code=400, detail="Versión de deslinde inválida")
 
         actualizar_evento(
             evento_id=evento_id,
