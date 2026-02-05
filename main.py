@@ -607,22 +607,85 @@ templates_env = Environment(
                                 });
                             }
 
-                            // Validación de Archivos Genérica
-                            function validateFileSize(input, feedbackId, maxBytes, typeName) {
+                            // Compresión de Imágenes (Frontend)
+                            function compressImage(input, maxBytes, typeName) {
+                                if (!input.files || !input.files[0]) return;
+                                
+                                const file = input.files[0];
+                                const feedbackId = input.id + '_feedback';
                                 const feedback = document.getElementById(feedbackId);
-                                if (input.files && input.files[0]) {
-                                    if (input.files[0].size > maxBytes) {
-                                        feedback.textContent = `⚠️ El archivo es muy pesado (${(input.files[0].size/1024/1024).toFixed(1)} MB). Máximo permitido: ${typeName}`;
+                                
+                                // Si es pequeño o no es imagen soportada, solo validamos tamaño por si acaso
+                                if (!file.type.match(/image.*/) || file.type === 'image/gif') {
+                                    if(file.size > maxBytes) {
+                                        feedback.textContent = `⚠️ Archivo muy pesado. Máximo: ${typeName}`;
                                         feedback.className = 'feedback error';
                                         feedback.style.display = 'block';
-                                        input.value = ""; // Reset
-                                        return false;
+                                        input.value = "";
                                     } else {
                                         feedback.style.display = 'none';
-                                        return true;
                                     }
+                                    return;
                                 }
-                                return true;
+
+                                // Si ya es pequeño (< 1.5MB), no comprimir innecesariamente
+                                if (file.size < 1.5 * 1024 * 1024) {
+                                     feedback.style.display = 'none';
+                                     return;
+                                }
+
+                                const reader = new FileReader();
+                                reader.onload = function(e) {
+                                    const img = new Image();
+                                    img.onload = function() {
+                                        let width = img.width;
+                                        let height = img.height;
+                                        const maxDim = 1600;
+
+                                        // Redimensionar si es necesario
+                                        if (width > maxDim || height > maxDim) {
+                                            if (width > height) {
+                                                height = Math.round(height * (maxDim / width));
+                                                width = maxDim;
+                                            } else {
+                                                width = Math.round(width * (maxDim / height));
+                                                height = maxDim;
+                                            }
+                                        }
+
+                                        const canvas = document.createElement('canvas');
+                                        canvas.width = width;
+                                        canvas.height = height;
+                                        const ctx = canvas.getContext('2d');
+                                        ctx.drawImage(img, 0, 0, width, height);
+
+                                        canvas.toBlob(function(blob) {
+                                            if (!blob) return; // Fallback
+                                            
+                                            // Reemplazar archivo silenciosamente
+                                            const newFile = new File([blob], file.name, {
+                                                type: 'image/jpeg',
+                                                lastModified: Date.now()
+                                            });
+
+                                            const dt = new DataTransfer();
+                                            dt.items.add(newFile);
+                                            input.files = dt.files;
+                                            
+                                            // Limpiar feedback visual
+                                            feedback.style.display = 'none';
+                                            
+                                            // console.log(`Comprimido: ${(file.size/1024/1024).toFixed(2)}MB -> ${(newFile.size/1024/1024).toFixed(2)}MB`);
+
+                                        }, 'image/jpeg', 0.75);
+                                    };
+                                    img.onerror = function() {
+                                        // Si falla carga de imagen, dejamos pasar el original (validación backend atrapará si es muy grande)
+                                        console.warn("No se pudo cargar imagen para comprimir");
+                                    };
+                                    img.src = e.target.result;
+                                };
+                                reader.readAsDataURL(file);
                             }
 
                             // Bind File Inputs
@@ -630,7 +693,7 @@ templates_env = Environment(
                                 const input = document.getElementById(id);
                                 if(input) {
                                     input.addEventListener('change', function() {
-                                        validateFileSize(this, id + '_feedback', MAX_IMAGE_BYTES, '{{ MAX_IMAGE_DOC_MB }} MB');
+                                        compressImage(this, MAX_IMAGE_BYTES, '{{ MAX_IMAGE_DOC_MB }} MB');
                                     });
                                 }
                             });
