@@ -58,18 +58,23 @@ except ImportError:
 
 def setup_logging() -> None:
     """Configura logging a archivo con rotación."""
-    # Intentar primero en /var/log, fallback a directorio local
-    target_dir = "/var/log/encarreraok"
+    # Por defecto usar carpeta logs local para evitar problemas de permisos
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    target_dir = os.path.join(base_dir, "logs")
+    
+    # Si existe variable de entorno para logs, usarla
+    if os.environ.get("ENCARRERAOK_LOG_DIR"):
+        target_dir = os.environ.get("ENCARRERAOK_LOG_DIR")
     
     try:
         os.makedirs(target_dir, exist_ok=True)
-        # Verificar escritura intentando crear un archivo temporal
+        # Verificar escritura
         test_file = os.path.join(target_dir, ".test_write")
         with open(test_file, 'w') as f:
             f.write('ok')
         os.remove(test_file)
     except Exception:
-        # Fallback: usar directorio actual si no se puede escribir en /var/log
+        # Fallback: usar directorio actual
         target_dir = os.path.dirname(os.path.abspath(__file__))
     
     final_log_file = os.path.join(target_dir, "app.log")
@@ -110,6 +115,9 @@ def normalizar_documento_helper(documento: str) -> Optional[str]:
 # ------------------------------------------------------------------------------
 # Constantes
 # ------------------------------------------------------------------------------
+# Directorio base absoluto para referencias relativas robustas
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 # Límites de tamaño por tipo de evidencia (prevención 413)
 MAX_IMAGE_DOC_MB = 4  # Imagen documento: máx 4 MB por archivo
 MAX_FIRMA_MB = 1      # Firma canvas: máx 1 MB
@@ -119,7 +127,8 @@ MAX_IMAGE_COMPRESS_THRESHOLD_MB = 2  # Si supera esto, comprimir
 MAX_IMAGE_COMPRESS_TARGET_MB = 1.5   # Objetivo después de compresión
 
 # Configuración de versiones de deslinde
-LEGAL_DIR = os.environ.get("ENCARRERAOK_LEGAL_DIR", "legal")
+# FIX: Usar ruta absoluta basada en BASE_DIR
+LEGAL_DIR = os.environ.get("ENCARRERAOK_LEGAL_DIR", os.path.join(BASE_DIR, "legal"))
 DESLINDES_CONFIG = {
     "v1_1": "deslinde_v1_1_ligero.txt",
     "v2_0": "deslinde_v2_0_legal_fuerte.txt",
@@ -2288,7 +2297,10 @@ templates_env.filters["fecha_ddmmaaaa"] = fecha_ddmmaaaa
 # ------------------------------------------------------------------------------
 # Configuración de base de datos SQLite y Almacenamiento
 # ------------------------------------------------------------------------------
-DEFAULT_DB_PATH = "/var/lib/encarreraok/encarreraok.sqlite3"
+# Unificamos comportamiento: siempre usar directorio local 'data' por defecto
+# Esto facilita el despliegue simple (git pull) sin configurar /var/lib
+DEFAULT_DB_PATH = os.path.join(BASE_DIR, "data", "encarreraok.sqlite3")
+
 DB_PATH = os.environ.get("ENCARRERAOK_DB_PATH", DEFAULT_DB_PATH)
 EVIDENCIAS_DIR = os.path.join(os.path.dirname(DB_PATH), "evidencias")
 FIRMAS_DIR = os.path.join(EVIDENCIAS_DIR, "firmas")
@@ -2323,9 +2335,10 @@ def ensure_storage() -> None:
         os.makedirs(AUDIOS_DIR, exist_ok=True)
         os.makedirs(SALUD_DIR, exist_ok=True)
         # Podríamos ajustar permisos de evidencias también
-    except Exception:
-        # Entorno local dev windows etc
-        pass
+    except Exception as e:
+        app_logger.error(f"Error CRITICO inicializando almacenamiento: {e}")
+        # No silenciar error crítico
+        raise
 
 
 def normalizar_documento_helper(doc: str) -> str:
@@ -3801,36 +3814,42 @@ def mostrar_formulario(evento_id: int, request: Request) -> HTMLResponse:
     - Si el evento está inactivo, muestra el formulario deshabilitado.
     - Carga deslinde desde archivo según versión configurada.
     """
-    evento = get_evento(evento_id)
-    if not evento:
-        raise HTTPException(status_code=404, detail="Evento no encontrado")
-    # Normaliza booleano 'activo' (0/1 en SQLite)
-    evento["activo"] = bool(evento["activo"])
-    evento["req_firma"] = bool(evento.get("req_firma", 0))
-    evento["req_documento"] = bool(evento.get("req_documento", 0))
-    evento["req_audio"] = bool(evento.get("req_audio", 0))
-    evento["req_salud"] = bool(evento.get("req_salud", 0))
-    evento["friendly_intro"] = bool(evento.get("friendly_intro", 0)) # DESLINDE PATCH: friendly intro
+    try:
+        evento = get_evento(evento_id)
+        if not evento:
+            raise HTTPException(status_code=404, detail="Evento no encontrado")
+        # Normaliza booleano 'activo' (0/1 en SQLite)
+        evento["activo"] = bool(evento["activo"])
+        evento["req_firma"] = bool(evento.get("req_firma", 0))
+        evento["req_documento"] = bool(evento.get("req_documento", 0))
+        evento["req_audio"] = bool(evento.get("req_audio", 0))
+        evento["req_salud"] = bool(evento.get("req_salud", 0))
+        evento["friendly_intro"] = bool(evento.get("friendly_intro", 0)) # DESLINDE PATCH: friendly intro
 
-    # Obtener texto del deslinde según versión
-    version = evento.get("deslinde_version") or DEFAULT_DESLINDE_VERSION
-    texto_base = cargar_deslinde(version)
-    
-    # Reemplazar placeholders dinámicos
-    texto_final = texto_base.replace("{{NOMBRE_EVENTO}}", evento["nombre"])\
-                            .replace("{{ORGANIZADOR}}", evento["organizador"])
+        # Obtener texto del deslinde según versión
+        version = evento.get("deslinde_version") or DEFAULT_DESLINDE_VERSION
+        texto_base = cargar_deslinde(version)
+        
+        # Reemplazar placeholders dinámicos
+        texto_final = texto_base.replace("{{NOMBRE_EVENTO}}", evento["nombre"])\
+                                .replace("{{ORGANIZADOR}}", evento["organizador"])
 
-    template = templates_env.get_template("evento_form.html")
-    html = template.render(
-        evento=evento, 
-        request=request, 
-        deslinde_texto=texto_final,
-        MAX_IMAGE_DOC_MB=MAX_IMAGE_DOC_MB,
-        MAX_FIRMA_MB=MAX_FIRMA_MB,
-        MAX_AUDIO_MB=MAX_AUDIO_MB,
-        MAX_IMAGE_COMPRESS_THRESHOLD_MB=MAX_IMAGE_COMPRESS_THRESHOLD_MB
-    )
-    return HTMLResponse(content=html)
+        template = templates_env.get_template("evento_form.html")
+        html = template.render(
+            evento=evento, 
+            request=request, 
+            deslinde_texto=texto_final,
+            MAX_IMAGE_DOC_MB=MAX_IMAGE_DOC_MB,
+            MAX_FIRMA_MB=MAX_FIRMA_MB,
+            MAX_AUDIO_MB=MAX_AUDIO_MB,
+            MAX_IMAGE_COMPRESS_THRESHOLD_MB=MAX_IMAGE_COMPRESS_THRESHOLD_MB
+        )
+        return HTMLResponse(content=html)
+    except HTTPException:
+        raise
+    except Exception as e:
+        app_logger.error(f"Error mostrando formulario evento {evento_id}: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail="Error interno del servidor. Consulte logs.")
 
 
 @app.post("/e/{evento_id}", response_class=HTMLResponse)
