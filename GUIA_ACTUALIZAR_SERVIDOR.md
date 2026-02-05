@@ -343,8 +343,7 @@ git pull origin main
 ls -l main.py
 git log -1 --format="%h - %s (%cd)"
 
-# 4. Reiniciar el servidor (reset)
-sudo systemctl restart encarreraok
+c
 
 # 5. Verificar que el servicio está corriendo correctamente (debe decir "active (running)")
 sudo systemctl status encarreraok

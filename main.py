@@ -406,7 +406,8 @@ templates_env = Environment(
                         background-color: #fff;
                         margin-bottom: 16px;
                         flex-grow: 1; 
-                        min-height: 200px;
+                        height: 220px;
+                        min-height: 220px;
                     }
                 </style>
                 <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
@@ -732,12 +733,18 @@ templates_env = Environment(
                                 // Open Modal
                                 $("#open-signature-modal").click(function() {
                                     $modal.css("display", "flex");
-                                    if (!initialized) {
-                                        $sigDiv.jSignature({'width': '100%', 'height': '100%'});
-                                        initialized = true;
-                                    } else {
-                                        $sigDiv.jSignature("reset");
-                                    }
+                                    
+                                    // FIX: Delay init to ensure modal is visible and layout is calculated
+                                    setTimeout(function() {
+                                        if (!initialized) {
+                                            $sigDiv.jSignature({'width': '100%', 'height': '100%'});
+                                            initialized = true;
+                                            // Force resize immediately after first init
+                                            try { $sigDiv.jSignature("resize"); } catch(e){}
+                                        } else {
+                                            $sigDiv.jSignature("reset");
+                                        }
+                                    }, 50);
                                 });
 
                                 // Clear
