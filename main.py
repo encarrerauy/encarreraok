@@ -2708,7 +2708,7 @@ def aceptacion_existente(conn: sqlite3.Connection, evento_id: int, documento_nor
             (evento_id, documento_norm)
         )
     else:
-        # Si NO existe, usar query legacy (compatible)
+        # Si NO existe, asumir que todos son válidos (legacy)
         cur.execute(
             "SELECT 1 FROM aceptaciones WHERE evento_id = ? AND documento_norm = ? LIMIT 1",
             (evento_id, documento_norm)
@@ -2865,7 +2865,22 @@ def listar_aceptaciones(evento_id: Optional[int] = None, query: Optional[str] = 
         
         cur.execute(sql, tuple(params))
         rows = cur.fetchall()
-        return [dict(r) for r in rows]
+        
+        # Procesar filas para calcular estado dinámicamente
+        results = []
+        for r in rows:
+            d = dict(r)
+            # Fuente de verdad: valido (0/1)
+            # Si valido es 0 -> anulado. Si es 1 -> valido.
+            # Fallback a 1 si no existe columna valido (legacy).
+            valido = d.get('valido')
+            if valido is not None and valido == 0:
+                d['estado'] = 'anulado'
+            else:
+                d['estado'] = 'valido'
+            results.append(d)
+            
+        return results
     finally:
         conn.close()
 
@@ -2971,6 +2986,13 @@ def get_aceptacion_detalle(aceptacion_id: int) -> Optional[Dict[str, Any]]:
             return None
         
         data = dict(row)
+        
+        # Calcular estado dinámicamente
+        valido = data.get('valido')
+        if valido is not None and valido == 0:
+            data['estado'] = 'anulado'
+        else:
+            data['estado'] = 'valido'
         
         # Verificar existencia de archivos
         data['firma_exists'] = os.path.exists(data['firma_path']) if data['firma_path'] else False
@@ -5298,7 +5320,11 @@ def admin_monitor_evento(
                 a.salud_doc_path,
                 a.salud_doc_tipo,
                 a.audio_exento,
-                a.firma_asistida
+                a.firma_asistida,
+                a.valido,
+                a.fecha_anulacion,
+                a.motivo_anulacion,
+                a.usuario_anulacion
             FROM aceptaciones a
             JOIN eventos e ON e.id = a.evento_id
             WHERE {where_sql}
@@ -5309,7 +5335,17 @@ def admin_monitor_evento(
         params_list.extend([page_size, offset])
         cur.execute(sql_list, tuple(params_list))
         rows = cur.fetchall()
-        aceptaciones = [dict(r) for r in rows]
+        
+        # Calcular estado dinámicamente
+        aceptaciones = []
+        for r in rows:
+            d = dict(r)
+            valido = d.get('valido')
+            if valido is not None and valido == 0:
+                d['estado'] = 'anulado'
+            else:
+                d['estado'] = 'valido'
+            aceptaciones.append(d)
     finally:
         conn.close()
 
