@@ -370,7 +370,47 @@ templates_env = Environment(
                         .btn-group { width: 100%; }
                         .btn-group .btn { flex: 1; }
                     }
+                    
+                    /* Signature Modal */
+                    .modal-overlay {
+                        display: none;
+                        position: fixed;
+                        top: 0; left: 0;
+                        width: 100%; height: 100%;
+                        background: rgba(0,0,0,0.5);
+                        z-index: 9999;
+                        align-items: center;
+                        justify-content: center;
+                    }
+                    .modal-content {
+                        background: white;
+                        padding: 20px;
+                        border-radius: 8px;
+                        width: 90%;
+                        max-width: 600px;
+                        display: flex;
+                        flex-direction: column;
+                        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+                    }
+                    @media (max-width: 576px) {
+                        .modal-content {
+                            width: 100%;
+                            height: 100%;
+                            border-radius: 0;
+                            padding: 16px;
+                        }
+                        .modal-content h3 { margin-top: 0; }
+                    }
+                    #signature-area {
+                        border: 2px dashed #ccc;
+                        background-color: #fff;
+                        margin-bottom: 16px;
+                        flex-grow: 1; 
+                        min-height: 200px;
+                    }
                 </style>
+                <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+                <script src="https://cdnjs.cloudflare.com/ajax/libs/jSignature/2.1.3/jSignature.min.js"></script>
             </head>
             <body>
                 <div class="card">
@@ -503,14 +543,29 @@ templates_env = Environment(
                             {% if evento.req_firma %}
                             <div class="form-group">
                                 <h3>Firma Digital</h3>
-                                <div class="signature-pad-wrapper">
-                                    <canvas id="signature-pad"></canvas>
+                                
+                                <button type="button" class="btn btn-primary" id="open-signature-modal" style="width: 100%; margin-bottom: 10px;">
+                                    ✍️ Firmar deslinde
+                                </button>
+                                
+                                <div id="signature-preview-msg" style="display:none; color: #198754; font-weight: bold; text-align: center; margin-bottom: 10px; padding: 10px; border: 1px solid #198754; border-radius: 6px; background-color: #d1e7dd;">
+                                    Firma cargada ✔️
                                 </div>
-                                <div class="signature-tools">
-                                    <button type="button" class="btn btn-secondary btn-sm" id="clear-signature">Borrar firma</button>
-                                </div>
-                                <div class="field-help-visible">Firme dentro del recuadro (igual que en su documento)</div>
+                                
                                 <div id="firma_feedback" class="feedback"></div>
+
+                                <!-- Modal de Firma (Hidden) -->
+                                <div id="signature-modal" class="modal-overlay">
+                                    <div class="modal-content">
+                                        <h3 style="margin-bottom: 16px;">Firmar documento</h3>
+                                        <div id="signature-area"></div>
+                                        <div class="btn-group" style="margin-top: auto; display: flex; gap: 10px;">
+                                            <button type="button" class="btn btn-secondary" id="sig-clear">Limpiar</button>
+                                            <button type="button" class="btn btn-danger" id="sig-cancel">Cancelar</button>
+                                            <button type="button" class="btn btn-primary" id="sig-save" style="flex-grow: 1;">Usar firma</button>
+                                        </div>
+                                    </div>
+                                </div>
 
                                 <div class="checkbox-wrapper">
                                     <input type="checkbox" id="firma_asistida" name="firma_asistida" value="1">
@@ -665,86 +720,62 @@ templates_env = Environment(
                             })();
                             {% endif %}
 
-                            // Lógica de Firma (si existe)
+                            // Lógica de Firma (jSignature)
                             {% if evento.req_firma %}
-                            (function() {
-                                const canvas = document.getElementById('signature-pad');
-                                const ctx = canvas.getContext('2d');
-                                const hiddenInput = document.getElementById('firma_base64');
-                                let hasSigned = false;
+                            $(document).ready(function() {
+                                var $sigDiv = $("#signature-area");
+                                var $hiddenInput = $("#firma_base64");
+                                var $modal = $("#signature-modal");
+                                var $previewMsg = $("#signature-preview-msg");
+                                var initialized = false;
 
-                                function resizeCanvas() {
-                                    const ratio = Math.max(window.devicePixelRatio || 1, 1);
-                                    canvas.width = canvas.offsetWidth * ratio;
-                                    canvas.height = canvas.offsetHeight * ratio;
-                                    ctx.scale(ratio, ratio);
-                                }
-                                // FIX 2: Evitar reinicializar en scroll/resize
-                                // window.addEventListener('resize', resizeCanvas);
-                                resizeCanvas();
+                                // Open Modal
+                                $("#open-signature-modal").click(function() {
+                                    $modal.css("display", "flex");
+                                    if (!initialized) {
+                                        $sigDiv.jSignature({'width': '100%', 'height': '100%'});
+                                        initialized = true;
+                                    } else {
+                                        $sigDiv.jSignature("reset");
+                                    }
+                                });
 
-                                // Restaurar firma si existe (FIX 2)
-                                if (hiddenInput.value) {
-                                    const img = new Image();
-                                    img.onload = () => ctx.drawImage(img, 0, 0, canvas.offsetWidth, canvas.offsetHeight);
-                                    img.src = hiddenInput.value;
-                                }
+                                // Clear
+                                $("#sig-clear").click(function() {
+                                    $sigDiv.jSignature("reset");
+                                });
 
-                                // Eventos de dibujo
-                                let drawing = false;
-                                function start(e) {
-                                    e.preventDefault();
-                                    drawing = true;
-                                    ctx.beginPath();
-                                    const {x, y} = getPos(e);
-                                    ctx.moveTo(x, y);
-                                }
-                                function move(e) {
-                                    if(!drawing) return;
-                                    e.preventDefault();
-                                    const {x, y} = getPos(e);
-                                    ctx.lineTo(x, y);
-                                    ctx.stroke();
-                                    hasSigned = true;
-                                }
-                                function end() { drawing = false; }
-                                function getPos(e) {
-                                    const rect = canvas.getBoundingClientRect();
-                                    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-                                    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-                                    return { x: clientX - rect.left, y: clientY - rect.top };
-                                }
+                                // Cancel
+                                $("#sig-cancel").click(function() {
+                                    $modal.hide();
+                                });
 
-                                canvas.addEventListener('mousedown', start);
-                                canvas.addEventListener('mousemove', move);
-                                canvas.addEventListener('mouseup', end);
-                                canvas.addEventListener('touchstart', start, {passive: false});
-                                canvas.addEventListener('touchmove', move, {passive: false});
-                                canvas.addEventListener('touchend', end);
-                                
-                                // FIX 2: Guardar estado en cada trazo
-                                const saveSignature = () => { hiddenInput.value = canvas.toDataURL(); };
-                                canvas.addEventListener('mouseup', saveSignature);
-                                canvas.addEventListener('touchend', saveSignature);
-
-                                document.getElementById('clear-signature').addEventListener('click', () => {
-                                    ctx.clearRect(0, 0, canvas.width, canvas.height);
-                                    hasSigned = false;
-                                    hiddenInput.value = "";
+                                // Save (Usar firma)
+                                $("#sig-save").click(function() {
+                                    if( $sigDiv.jSignature('getData', 'native').length == 0 ) {
+                                        alert("Por favor firme antes de guardar.");
+                                        return;
+                                    }
+                                    
+                                    var datapair = $sigDiv.jSignature("getData", "image"); 
+                                    var dataUrl = "data:" + datapair[0] + "," + datapair[1];
+                                    
+                                    $hiddenInput.val(dataUrl);
+                                    $previewMsg.show();
+                                    $modal.hide();
                                 });
 
                                 // Sync on submit
-                                document.getElementById('acceptForm').addEventListener('submit', function(e) {
-                                    if(document.getElementById('firma_asistida').checked) return; // Skip si es asistida
+                                $("#acceptForm").on('submit', function(e) {
+                                    if($("#firma_asistida").is(":checked")) return; 
                                     
-                                    if(!hasSigned) {
+                                    if(!$hiddenInput.val()) {
                                         alert("Por favor firme el documento.");
                                         e.preventDefault();
                                         return;
                                     }
-                                    hiddenInput.value = canvas.toDataURL("image/png");
                                 });
-                            })();
+                            });
                             {% endif %}
 
                             // Validación Final en Submit
