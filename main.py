@@ -2638,6 +2638,8 @@ def init_db() -> None:
 def get_evento(evento_id: int) -> Optional[Dict[str, Any]]:
     """Obtiene un evento por id."""
     conn = get_connection()
+    # FIX URGENTE: Asegurar row_factory
+    conn.row_factory = sqlite3.Row
     try:
         cur = conn.cursor()
         cur.execute("SELECT * FROM eventos WHERE id = ?", (evento_id,))
@@ -2691,6 +2693,10 @@ def aceptacion_existente(conn: sqlite3.Connection, evento_id: int, documento_nor
     TAREA 1: Código defensivo para verificar duplicados.
     Detecta si la columna 'valido' existe antes de usarla.
     """
+    # FIX URGENTE: Asegurar row_factory si no viene configurada
+    if conn.row_factory != sqlite3.Row:
+        conn.row_factory = sqlite3.Row
+
     if not documento_norm:
         return False
         
@@ -2720,6 +2726,8 @@ def aceptacion_existente(conn: sqlite3.Connection, evento_id: int, documento_nor
 def listar_eventos() -> List[Dict[str, Any]]:
     """Lista todos los eventos para filtrado."""
     conn = get_connection()
+    # FIX URGENTE: Asegurar row_factory
+    conn.row_factory = sqlite3.Row
     try:
         cur = conn.cursor()
         cur.execute("SELECT id, nombre, fecha, organizador, activo, req_firma, req_documento, req_audio, deslinde_version, friendly_intro FROM eventos ORDER BY id DESC")
@@ -2802,6 +2810,8 @@ def listar_aceptaciones(evento_id: Optional[int] = None, query: Optional[str] = 
     Filtra por nombre o documento si query se especifica.
     """
     conn = get_connection()
+    # FIX URGENTE: Asegurar row_factory
+    conn.row_factory = sqlite3.Row
     try:
         cur = conn.cursor()
         sql = """
@@ -2941,6 +2951,8 @@ def eliminar_evento_completo(evento_id: int) -> bool:
 def get_aceptacion_detalle(aceptacion_id: int) -> Optional[Dict[str, Any]]:
     """Obtiene detalle completo de una aceptación con verificación de existencia de archivos."""
     conn = get_connection()
+    # FIX URGENTE: Asegurar row_factory
+    conn.row_factory = sqlite3.Row
     try:
         cur = conn.cursor()
         cur.execute(
@@ -3009,6 +3021,8 @@ def get_aceptacion_detalle(aceptacion_id: int) -> Optional[Dict[str, Any]]:
 def get_aceptacion_por_token(pdf_token: str) -> Optional[Dict[str, Any]]:
     """Obtiene aceptación por token público."""
     conn = get_connection()
+    # FIX URGENTE: Asegurar row_factory
+    conn.row_factory = sqlite3.Row
     try:
         cur = conn.cursor()
         cur.execute(
