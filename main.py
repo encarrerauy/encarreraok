@@ -1302,14 +1302,14 @@ templates_env = Environment(
                     </thead>
                     <tbody>
                     {% for a in aceptaciones %}
-                        <tr {% if a.estado == 'anulado' or a.valido == 0 %}style="background-color: #f8d7da33;"{% endif %}>
+                        <tr {% if a.estado == 'anulado' %}style="background-color: #f8d7da33;"{% endif %}>
                             <td><a href="/admin/aceptaciones/{{ a.id }}">{{ a.id }}</a></td>
                             <td>
-                                {% if a.estado == 'anulado' or a.valido == 0 %}
+                                {% if a.estado == 'anulado' %}
                                     <span class="status-badge status-anulado">ANULADO</span>
-                                    {% if a.motivo_anulacion %}
-                                    <div style="font-size:0.75rem; color:#842029; margin-top:4px;">{{ a.motivo_anulacion }}</div>
-                                    <div style="font-size:0.7rem; color:#666;">Por: {{ a.usuario_anulacion }}</div>
+                                    {% if a.anulado_motivo %}
+                                    <div style="font-size:0.75rem; color:#842029; margin-top:4px;">{{ a.anulado_motivo }}</div>
+                                    <div style="font-size:0.7rem; color:#666;">Por: {{ a.anulado_por }}</div>
                                     {% endif %}
                                 {% else %}
                                     <span class="status-badge status-ok">VALIDO</span>
@@ -1343,7 +1343,7 @@ templates_env = Environment(
                                 {% if a.salud_doc_path %}<a href="/admin/evidence/view/{{ a.id }}/salud_doc" target="_blank" style="color: #0d6efd; text-decoration: underline;">Ver Salud</a>{% else %}-{% endif %}
                             </td>
                             <td>
-                                {% if a.estado != 'anulado' and a.valido != 0 %}
+                                {% if a.estado != 'anulado' %}
                                 <button onclick="openAnularModal({{ a.id }}, '{{ a.nombre_participante|e }}', '{{ a.documento|e }}')" class="btn btn-danger" style="padding: 4px 8px; font-size: 0.8rem;" title="Anular Deslinde">
                                     🗑️ Anular
                                 </button>
@@ -1803,12 +1803,12 @@ templates_env = Environment(
                                 {% if evento.req_audio and (not a.audio_path and not a.audio_exento) %} {% set status_ok = false %} {% endif %}
                                 {% if evento.req_salud and not a.salud_doc_path %} {% set status_ok = false %} {% endif %}
                                 
-                                <tr {% if a.estado == 'anulado' or a.valido == 0 %}style="background-color: #f8d7da33;"{% endif %}>
+                                <tr {% if a.estado == 'anulado' %}style="background-color: #f8d7da33;"{% endif %}>
                                     <td><strong>{{ a.nombre_participante }}</strong></td>
                                     <td>{{ a.documento }}</td>
                                     <td>
-                                        {% if a.estado == 'anulado' or a.valido == 0 %}
-                                        <div title="Motivo: {{ a.motivo_anulacion }}&#10;Por: {{ a.usuario_anulacion }}">
+                                        {% if a.estado == 'anulado' %}
+                                        <div title="Motivo: {{ a.anulado_motivo }}&#10;Por: {{ a.anulado_por }}">
                                             <span class="status-badge status-anulado"><span class="icon">🚫</span> ANULADO</span>
                                         </div>
                                         {% elif status_ok %}
@@ -1823,7 +1823,7 @@ templates_env = Environment(
                                             <a href="/admin/evento/{{ evento.id }}/preview/{{ a.id }}" class="btn {{ 'btn-primary' if not status_ok else 'btn-outline' }}">
                                                 {{ '🔍 Verificar' if not status_ok else '👁️ Ver' }}
                                             </a>
-                                            {% if a.estado != 'anulado' and a.valido != 0 %}
+                                            {% if a.estado != 'anulado' %}
                                             <button onclick="openAnularModal({{ a.id }}, '{{ a.nombre_participante|e }}', '{{ a.documento|e }}')" class="btn btn-danger" style="padding: 6px 10px;" title="Anular Deslinde">
                                                 🗑️
                                             </button>
@@ -2868,8 +2868,7 @@ def listar_aceptaciones(evento_id: Optional[int] = None, query: Optional[str] = 
                 a.anulado,
                 a.anulado_at,
                 a.anulado_por,
-                a.anulado_motivo,
-                a.valido
+                a.anulado_motivo
             FROM aceptaciones a
             JOIN eventos e ON e.id = a.evento_id
         """
@@ -3009,11 +3008,10 @@ def get_aceptacion_detalle(aceptacion_id: int) -> Optional[Dict[str, Any]]:
                 a.pdf_token_revoked,
                 a.pdf_last_access_at,
                 a.pdf_access_count,
-                a.valido,
-                a.estado,
-                a.fecha_anulacion,
-                a.motivo_anulacion,
-                a.usuario_anulacion
+                a.anulado,
+                a.anulado_at,
+                a.anulado_por,
+                a.anulado_motivo
             FROM aceptaciones a
             JOIN eventos e ON e.id = a.evento_id
             WHERE a.id = ?
@@ -3027,8 +3025,7 @@ def get_aceptacion_detalle(aceptacion_id: int) -> Optional[Dict[str, Any]]:
         data = dict(row)
         
         # Calcular estado dinámicamente
-        valido = data.get('valido')
-        if valido is not None and valido == 0:
+        if data.get('anulado'):
             data['estado'] = 'anulado'
         else:
             data['estado'] = 'valido'
@@ -3853,6 +3850,7 @@ def mostrar_formulario(evento_id: int, request: Request) -> HTMLResponse:
             evento=evento, 
             request=request, 
             deslinde_texto=texto_final,
+            aceptacion=None,
             MAX_IMAGE_DOC_MB=MAX_IMAGE_DOC_MB,
             MAX_FIRMA_MB=MAX_FIRMA_MB,
             MAX_AUDIO_MB=MAX_AUDIO_MB,
@@ -5418,10 +5416,10 @@ def admin_monitor_evento(
                 a.salud_doc_tipo,
                 a.audio_exento,
                 a.firma_asistida,
-                a.valido,
-                a.fecha_anulacion,
-                a.motivo_anulacion,
-                a.usuario_anulacion
+                a.anulado,
+                a.anulado_at,
+                a.anulado_por,
+                a.anulado_motivo
             FROM aceptaciones a
             JOIN eventos e ON e.id = a.evento_id
             WHERE {where_sql}
@@ -5437,8 +5435,7 @@ def admin_monitor_evento(
         aceptaciones = []
         for r in rows:
             d = dict(r)
-            valido = d.get('valido')
-            if valido is not None and valido == 0:
+            if d.get('anulado'):
                 d['estado'] = 'anulado'
             else:
                 d['estado'] = 'valido'
