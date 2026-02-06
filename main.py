@@ -1400,7 +1400,15 @@ templates_env = Environment(
                                 <td>{{ r.evento_nombre }}</td>
                                 <td>{{ r.fecha_hora[:10] }}</td>
                                 <td>
-                                    <a href="/admin/aceptaciones/{{ r.id }}" class="btn btn-secondary" style="padding: 5px 10px; font-size: 14px;" target="_blank">Ver Deslinde</a>
+                                    {% if r.anulado %}
+                                        <span style="color: #dc3545; font-weight: bold;">ANULADO</span>
+                                        <a href="/admin/aceptaciones/{{ r.id }}" class="btn btn-secondary" style="padding: 5px 10px; font-size: 14px; margin-left: 5px;" target="_blank">Ver</a>
+                                    {% else %}
+                                        <a href="/admin/aceptaciones/{{ r.id }}" class="btn btn-secondary" style="padding: 5px 10px; font-size: 14px;" target="_blank">Ver Deslinde</a>
+                                        <form method="post" action="/admin/deslindes/{{ r.id }}/anular" style="display:inline;" onsubmit="return confirm('¿Está seguro de anular este deslinde? El participante deberá firmar nuevamente.');">
+                                            <button type="submit" class="btn btn-danger" style="padding: 5px 10px; font-size: 14px; margin-left: 5px;">Anular</button>
+                                        </form>
+                                    {% endif %}
                                 </td>
                             </tr>
                             {% endfor %}
@@ -2096,6 +2104,15 @@ def ensure_schema_migrations(conn: sqlite3.Connection) -> None:
             cur.execute(f"ALTER TABLE aceptaciones ADD COLUMN deslinde_version TEXT DEFAULT '{DEFAULT_DESLINDE_VERSION}'")
             app_logger.info("Migración aplicada: columna deslinde_version agregada")
             
+        # TAREA 4 (User Request): Migración anulación (soft-delete) en aceptaciones
+        if "anulado" not in columns:
+            app_logger.info("Iniciando migración: agregando columnas de anulación a 'aceptaciones'")
+            cur.execute("ALTER TABLE aceptaciones ADD COLUMN anulado INTEGER DEFAULT 0")
+            cur.execute("ALTER TABLE aceptaciones ADD COLUMN anulado_at TEXT")
+            cur.execute("ALTER TABLE aceptaciones ADD COLUMN anulado_por TEXT")
+            cur.execute("ALTER TABLE aceptaciones ADD COLUMN anulado_motivo TEXT")
+            app_logger.info("Migración aplicada: columnas de anulación agregadas")
+            
     except sqlite3.OperationalError as e:
         app_logger.error(f"Error en migración de esquema: {e}")
 
@@ -2514,7 +2531,8 @@ def listar_aceptaciones(evento_id: Optional[int] = None, query: Optional[str] = 
                 a.salud_doc_path,
                 a.salud_doc_tipo,
                 a.audio_exento,
-                a.firma_asistida
+                a.firma_asistida,
+                a.anulado
             FROM aceptaciones a
             JOIN eventos e ON e.id = a.evento_id
         """
@@ -4143,6 +4161,56 @@ def admin_search(q: Optional[str] = None, username: str = Depends(get_current_us
     template = templates_env.get_template("admin_busqueda_deslindes.html")
     html = template.render(query=q, resultados=resultados, username=username)
     return HTMLResponse(content=html)
+
+
+@app.post("/admin/deslindes/{deslinde_id}/anular")
+def admin_anular_deslinde(
+    deslinde_id: int, 
+    username: str = Depends(get_current_username)
+):
+    """
+    Anula un deslinde (aceptación) específico.
+    Realiza soft-delete y permite que el participante vuelva a firmar.
+    """
+    from fastapi.responses import RedirectResponse
+    
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        
+        # Verificar si existe y estado actual
+        cur.execute("SELECT id, anulado, documento FROM aceptaciones WHERE id = ?", (deslinde_id,))
+        row = cur.fetchone()
+        
+        if not row:
+            raise HTTPException(status_code=404, detail="Deslinde no encontrado")
+            
+        doc = row['documento']
+        
+        if not row['anulado']:
+            # Anular
+            now_utc = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+            # Actualizamos solo campos de anulación (admin only)
+            cur.execute(
+                """
+                UPDATE aceptaciones 
+                SET anulado = 1,
+                anulado_at = ?,
+                anulado_por = ?,
+                anulado_motivo = 'Anulado por admin'
+                WHERE id = ?
+                """,
+                (now_utc, username, deslinde_id)
+            )
+            conn.commit()
+            app_logger.info(f"Deslinde {deslinde_id} anulado por {username}")
+            
+        # Redirigir a la búsqueda del documento para ver el resultado
+        return RedirectResponse(url=f"/admin/search?q={doc}", status_code=303)
+        
+    finally:
+        conn.close()
+
 # /ADMIN PATCH
 
 
