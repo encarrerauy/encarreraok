@@ -2668,10 +2668,10 @@ def init_db() -> None:
 def get_evento(evento_id: int) -> Optional[Dict[str, Any]]:
     """Obtiene un evento por id."""
     conn = get_connection()
-    # FIX URGENTE: Asegurar row_factory
     conn.row_factory = sqlite3.Row
     try:
         cur = conn.cursor()
+        # CORRECCION QUIRURGICA: Query directa por ID sin filtros extra
         cur.execute("SELECT * FROM eventos WHERE id = ?", (evento_id,))
         row = cur.fetchone()
         return dict(row) if row else None
