@@ -2164,6 +2164,13 @@ def init_db() -> None:
             pass
         # /DESLINDE PATCH
 
+        # TAREA: Migración deslinde_texto (custom per event)
+        try:
+            cur.execute("ALTER TABLE eventos ADD COLUMN deslinde_texto TEXT")
+        except sqlite3.OperationalError:
+            pass
+
+
         # Tabla de aceptaciones
         cur.execute(
             """
@@ -3456,13 +3463,20 @@ def mostrar_formulario(evento_id: int, request: Request) -> HTMLResponse:
     evento["req_salud"] = bool(evento.get("req_salud", 0))
     evento["friendly_intro"] = bool(evento.get("friendly_intro", 0)) # DESLINDE PATCH: friendly intro
 
-    # Obtener texto del deslinde según versión
-    version = evento.get("deslinde_version") or DEFAULT_DESLINDE_VERSION
-    texto_base = cargar_deslinde(version)
-    
-    # Reemplazar placeholders dinámicos
-    texto_final = texto_base.replace("{{NOMBRE_EVENTO}}", evento["nombre"])\
-                            .replace("{{ORGANIZADOR}}", evento["organizador"])
+    # Obtener texto del deslinde
+    deslinde_custom = evento.get("deslinde_texto")
+    if deslinde_custom and deslinde_custom.strip():
+        # Deslinde personalizado por evento
+        texto_final = deslinde_custom
+    else:
+        # Deslinde estándar según versión
+        version = evento.get("deslinde_version") or DEFAULT_DESLINDE_VERSION
+        texto_base = cargar_deslinde(version)
+        # Reemplazar placeholders dinámicos solo en el estándar (o en ambos? Mejor solo estándar por ahora para cumplir "renderizar ese texto")
+        # El usuario dijo "renderizar ese texto", no mencionó placeholders. 
+        # Si el usuario pone texto fijo, es fijo.
+        texto_final = texto_base.replace("{{NOMBRE_EVENTO}}", evento["nombre"])\
+                                .replace("{{ORGANIZADOR}}", evento["organizador"])
 
     template = templates_env.get_template("evento_form.html")
     html = template.render(
@@ -3606,10 +3620,14 @@ def procesar_aceptacion(
             conn.close()
 
         # Obtiene texto y hash del deslinde que se está aceptando
-        version = evento.get("deslinde_version") or DEFAULT_DESLINDE_VERSION
-        texto_base = cargar_deslinde(version)
-        texto_final = texto_base.replace("{{NOMBRE_EVENTO}}", evento["nombre"])\
-                                .replace("{{ORGANIZADOR}}", evento["organizador"])
+        deslinde_custom = evento.get("deslinde_texto")
+        if deslinde_custom and deslinde_custom.strip():
+             texto_final = deslinde_custom
+        else:
+             version = evento.get("deslinde_version") or DEFAULT_DESLINDE_VERSION
+             texto_base = cargar_deslinde(version)
+             texto_final = texto_base.replace("{{NOMBRE_EVENTO}}", evento["nombre"])\
+                                     .replace("{{ORGANIZADOR}}", evento["organizador"])
         
         deslinde_hash_sha256 = calcular_hash_sha256(texto_final)
         
