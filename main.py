@@ -21,8 +21,8 @@
 #   y reemplazar el DictLoader por FileSystemLoader.
 # - Ruta de la base: configurable con ENV `ENCARRERAOK_DB_PATH`.
 
-from fastapi import FastAPI, Request, Form, HTTPException, UploadFile, File, Depends, status
-from fastapi.responses import HTMLResponse, StreamingResponse, FileResponse
+from fastapi import FastAPI, Request, Form, Depends, HTTPException, status, UploadFile, File, BackgroundTasks
+from fastapi.responses import HTMLResponse, StreamingResponse, FileResponse, JSONResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from jinja2 import Environment, DictLoader, select_autoescape
 from pydantic import BaseModel
@@ -58,18 +58,23 @@ except ImportError:
 
 def setup_logging() -> None:
     """Configura logging a archivo con rotación."""
-    # Intentar primero en /var/log, fallback a directorio local
-    target_dir = "/var/log/encarreraok"
+    # Por defecto usar carpeta logs local para evitar problemas de permisos
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    target_dir = os.path.join(base_dir, "logs")
+    
+    # Si existe variable de entorno para logs, usarla
+    if os.environ.get("ENCARRERAOK_LOG_DIR"):
+        target_dir = os.environ.get("ENCARRERAOK_LOG_DIR")
     
     try:
         os.makedirs(target_dir, exist_ok=True)
-        # Verificar escritura intentando crear un archivo temporal
+        # Verificar escritura
         test_file = os.path.join(target_dir, ".test_write")
         with open(test_file, 'w') as f:
             f.write('ok')
         os.remove(test_file)
     except Exception:
-        # Fallback: usar directorio actual si no se puede escribir en /var/log
+        # Fallback: usar directorio actual
         target_dir = os.path.dirname(os.path.abspath(__file__))
     
     final_log_file = os.path.join(target_dir, "app.log")
@@ -110,6 +115,9 @@ def normalizar_documento_helper(documento: str) -> Optional[str]:
 # ------------------------------------------------------------------------------
 # Constantes
 # ------------------------------------------------------------------------------
+# Directorio base absoluto para referencias relativas robustas
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 # Límites de tamaño por tipo de evidencia (prevención 413)
 MAX_IMAGE_DOC_MB = 4  # Imagen documento: máx 4 MB por archivo
 MAX_FIRMA_MB = 1      # Firma canvas: máx 1 MB
@@ -119,7 +127,8 @@ MAX_IMAGE_COMPRESS_THRESHOLD_MB = 2  # Si supera esto, comprimir
 MAX_IMAGE_COMPRESS_TARGET_MB = 1.5   # Objetivo después de compresión
 
 # Configuración de versiones de deslinde
-LEGAL_DIR = os.environ.get("ENCARRERAOK_LEGAL_DIR", "legal")
+# FIX: Usar ruta absoluta basada en BASE_DIR
+LEGAL_DIR = os.environ.get("ENCARRERAOK_LEGAL_DIR", os.path.join(BASE_DIR, "legal"))
 DESLINDES_CONFIG = {
     "v1_1": "deslinde_v1_1_ligero.txt",
     "v2_0": "deslinde_v2_0_legal_fuerte.txt",
@@ -864,6 +873,52 @@ templates_env = Environment(
                         </script>
                     {% endif %}
                 </div>
+
+                <!-- Modal Anulacion -->
+                <div id="anularModal" style="display:none; position:fixed; z-index:1000; left:0; top:0; width:100%; height:100%; background-color:rgba(0,0,0,0.5);">
+                    <div style="background-color:#fefefe; margin:10% auto; padding:20px; border:1px solid #888; width:90%; max-width:500px; border-radius:8px; box-shadow:0 4px 6px rgba(0,0,0,0.1);">
+                        <span onclick="document.getElementById('anularModal').style.display='none'" style="color:#aaa; float:right; font-size:28px; font-weight:bold; cursor:pointer;">&times;</span>
+                        <h2 style="margin-top:0;">Anular Deslinde</h2>
+                        <p>Va a anular el deslinde #{{ aceptacion.id }}</p>
+                        <form id="anularForm" onsubmit="submitAnulacion(event)">
+                            <input type="hidden" name="aceptacion_id" value="{{ aceptacion.id }}">
+                            <div style="margin-bottom: 15px;">
+                                <label style="display:block; margin-bottom:5px; font-weight:bold;">Motivo (Requerido):</label>
+                                <textarea name="motivo" required style="width:100%; padding:8px; min-height:80px;" placeholder="Ej: Error en datos..."></textarea>
+                            </div>
+                            <div style="text-align: right; display: flex; justify-content: flex-end; gap: 10px;">
+                                <button type="button" onclick="document.getElementById('anularModal').style.display='none'" style="padding: 8px 16px; background: #fff; border: 1px solid #ccc; cursor: pointer;">Cancelar</button>
+                                <button type="submit" style="padding: 8px 16px; background: #dc3545; color: white; border: none; cursor: pointer;">Confirmar Anulación</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <script>
+                    async function submitAnulacion(e) {
+                        e.preventDefault();
+                        if(!confirm('¿Confirma la anulación?')) return;
+                        
+                        const form = e.target;
+                        const formData = new FormData(form);
+                        
+                        try {
+                            const response = await fetch('/admin/anular_aceptacion', {
+                                method: 'POST',
+                                body: formData
+                            });
+                            const result = await response.json();
+                            if(response.ok) {
+                                alert('Anulado correctamente');
+                                location.reload();
+                            } else {
+                                alert('Error: ' + result.detail);
+                            }
+                        } catch(err) {
+                            alert('Error de conexión');
+                        }
+                    }
+                </script>
             </body>
             </html>
             """,
@@ -903,6 +958,25 @@ templates_env = Environment(
                 <div class="card">
                     <a href="/admin/aceptaciones" class="btn-back">← Volver a lista</a>
                     <h1>Aceptación #{{ aceptacion.id }}</h1>
+
+                    <div style="margin: 15px 0; padding: 15px; border: 1px solid #ddd; border-radius: 6px; background-color: {% if aceptacion.valido == 0 %}#f8d7da{% else %}#d1e7dd{% endif %};">
+                        <strong>Estado:</strong>
+                        {% if aceptacion.valido == 0 %}
+                            <span style="color: #842029; font-weight: bold;">ANULADO</span>
+                            <div style="margin-top: 10px; font-size: 0.9em; border-top: 1px solid rgba(0,0,0,0.1); padding-top: 8px;">
+                                <div><strong>Fecha:</strong> {{ aceptacion.fecha_anulacion }}</div>
+                                <div><strong>Motivo:</strong> {{ aceptacion.motivo_anulacion }}</div>
+                                <div><strong>Por:</strong> {{ aceptacion.usuario_anulacion }}</div>
+                            </div>
+                        {% else %}
+                            <span style="color: #0f5132; font-weight: bold;">VÁLIDO</span>
+                            <div style="margin-top: 10px;">
+                                <button onclick="document.getElementById('anularModal').style.display='block'" style="background: #dc3545; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 0.9em;">
+                                    🗑️ Anular Deslinde
+                                </button>
+                            </div>
+                        {% endif %}
+                    </div>
                     
                     <h2>Participante</h2>
                     <div class="field">
@@ -1142,6 +1216,18 @@ templates_env = Environment(
                     .btn-danger { background: #dc3545; color: white; border-color: #dc3545; }
                     .btn-outline { background: white; color: #6c757d; border-color: #6c757d; }
                     select { padding: 8px; border-radius: 4px; border: 1px solid #ced4da; min-width: 200px; }
+                    .status-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px; border-radius: 4px; font-size: 0.85rem; font-weight: 500; }
+                    .status-ok { background: #d1e7dd; color: #0f5132; }
+                    .status-anulado { background: #f8d7da; color: #842029; }
+                    
+                    /* Modal Styles */
+                    .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.5); }
+                    .modal-content { background-color: #fefefe; margin: 10% auto; padding: 20px; border: 1px solid #888; width: 90%; max-width: 500px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+                    .close { color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer; }
+                    .close:hover, .close:focus { color: black; text-decoration: none; cursor: pointer; }
+                    .form-group { margin-bottom: 15px; }
+                    .form-group label { display: block; margin-bottom: 5px; font-weight: 500; }
+                    .form-group textarea { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; min-height: 80px; }
                 </style>
             </head>
             <body>
@@ -1194,6 +1280,7 @@ templates_env = Environment(
                     <thead>
                         <tr>
                             <th>ID</th>
+                            <th>Estado</th>
                             <th>Evento</th>
                             <th>Fecha evento</th>
                             <th>Organizador</th>
@@ -1210,12 +1297,24 @@ templates_env = Environment(
                             <th>Doc Dorso Path</th>
                             <th>Audio Path</th>
                             <th>Salud Doc Path</th>
+                            <th>Acciones</th>
                         </tr>
                     </thead>
                     <tbody>
                     {% for a in aceptaciones %}
-                        <tr>
+                        <tr {% if a.estado == 'anulado' or a.valido == 0 %}style="background-color: #f8d7da33;"{% endif %}>
                             <td><a href="/admin/aceptaciones/{{ a.id }}">{{ a.id }}</a></td>
+                            <td>
+                                {% if a.estado == 'anulado' or a.valido == 0 %}
+                                    <span class="status-badge status-anulado">ANULADO</span>
+                                    {% if a.motivo_anulacion %}
+                                    <div style="font-size:0.75rem; color:#842029; margin-top:4px;">{{ a.motivo_anulacion }}</div>
+                                    <div style="font-size:0.7rem; color:#666;">Por: {{ a.usuario_anulacion }}</div>
+                                    {% endif %}
+                                {% else %}
+                                    <span class="status-badge status-ok">VALIDO</span>
+                                {% endif %}
+                            </td>
                             <td>{{ a.evento_nombre }}</td>
                             <td>{{ a.evento_fecha|fecha_ddmmaaaa }}</td>
                             <td>{{ a.evento_organizador }}</td>
@@ -1243,10 +1342,98 @@ templates_env = Environment(
                             <td style="font-size: 0.85em; max-width: 200px; overflow: hidden; text-overflow: ellipsis;">
                                 {% if a.salud_doc_path %}<a href="/admin/evidence/view/{{ a.id }}/salud_doc" target="_blank" style="color: #0d6efd; text-decoration: underline;">Ver Salud</a>{% else %}-{% endif %}
                             </td>
+                            <td>
+                                {% if a.estado != 'anulado' and a.valido != 0 %}
+                                <button onclick="openAnularModal({{ a.id }}, '{{ a.nombre_participante|e }}', '{{ a.documento|e }}')" class="btn btn-danger" style="padding: 4px 8px; font-size: 0.8rem;" title="Anular Deslinde">
+                                    🗑️ Anular
+                                </button>
+                                {% endif %}
+                            </td>
                         </tr>
                     {% endfor %}
                     </tbody>
                 </table>
+                
+                <!-- Modal Anulacion -->
+                <div id="anularModal" class="modal">
+                    <div class="modal-content">
+                        <span class="close" onclick="closeAnularModal()">&times;</span>
+                        <h2 style="margin-top:0;">Anular Deslinde</h2>
+                        <p>Va a anular el deslinde de: <strong id="modalNombre"></strong> (<span id="modalDocumento"></span>)</p>
+                        <p class="file-hint" style="color: #842029;">⚠️ Esta acción es irreversible (lógica) y permitirá firmar de nuevo.</p>
+                        
+                        <form id="anularForm" onsubmit="submitAnulacion(event)">
+                            <input type="hidden" id="anularAceptacionId" name="aceptacion_id">
+                            <div class="form-group">
+                                <label for="motivo">Motivo de la anulación (Requerido):</label>
+                                <textarea id="motivo" name="motivo" required placeholder="Ej: Error en datos, documento ilegible, solicitud del usuario..."></textarea>
+                            </div>
+                            <div style="text-align: right; display: flex; justify-content: flex-end; gap: 10px;">
+                                <button type="button" class="btn btn-outline" onclick="closeAnularModal()">Cancelar</button>
+                                <button type="submit" class="btn btn-danger">Confirmar Anulación</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <script>
+                    // Modal Logic
+                    const modal = document.getElementById("anularModal");
+                    
+                    function openAnularModal(id, nombre, documento) {
+                        document.getElementById("anularAceptacionId").value = id;
+                        document.getElementById("modalNombre").textContent = nombre;
+                        document.getElementById("modalDocumento").textContent = documento;
+                        document.getElementById("motivo").value = "";
+                        modal.style.display = "block";
+                    }
+                    
+                    function closeAnularModal() {
+                        modal.style.display = "none";
+                    }
+                    
+                    window.onclick = function(event) {
+                        if (event.target == modal) {
+                            closeAnularModal();
+                        }
+                    }
+                    
+                    async function submitAnulacion(e) {
+                        e.preventDefault();
+                        const id = document.getElementById("anularAceptacionId").value;
+                        const motivo = document.getElementById("motivo").value;
+                        
+                        if(!motivo.trim()) {
+                            alert("El motivo es requerido.");
+                            return;
+                        }
+                        
+                        if(!confirm("¿Está seguro de anular este deslinde? Quedará registrado en auditoría.")) {
+                            return;
+                        }
+                        
+                        try {
+                            const formData = new FormData();
+                            formData.append("aceptacion_id", id);
+                            formData.append("motivo", motivo);
+                            
+                            const response = await fetch("/admin/anular_aceptacion", {
+                                method: "POST",
+                                body: formData
+                            });
+                            
+                            if (response.ok) {
+                                // alert("Deslinde anulado correctamente.");
+                                window.location.reload();
+                            } else {
+                                const txt = await response.text();
+                                alert("Error al anular: " + txt);
+                            }
+                        } catch (err) {
+                            alert("Error de red: " + err);
+                        }
+                    }
+                </script>
             </body>
             </html>
             """,
@@ -1352,6 +1539,9 @@ templates_env = Environment(
                     .no-results { text-align: center; color: #666; margin-top: 20px; }
                     .back-link { display: inline-block; margin-bottom: 15px; color: #6c757d; text-decoration: none; }
                     .back-link:hover { text-decoration: underline; }
+                    .status-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px; border-radius: 4px; font-size: 0.85rem; font-weight: 500; }
+                    .status-ok { background: #d1e7dd; color: #0f5132; }
+                    .status-anulado { background: #f8d7da; color: #842029; }
                 </style>
             </head>
             <body>
@@ -1384,6 +1574,7 @@ templates_env = Environment(
                         <thead>
                             <tr>
                                 <th>ID</th>
+                                <th>Estado</th>
                                 <th>Participante</th>
                                 <th>Documento</th>
                                 <th>Evento</th>
@@ -1393,8 +1584,15 @@ templates_env = Environment(
                         </thead>
                         <tbody>
                             {% for r in resultados %}
-                            <tr>
+                            <tr {% if r.estado == 'anulado' or r.valido == 0 %}style="background-color: #f8d7da33;"{% endif %}>
                                 <td>{{ r.id }}</td>
+                                <td>
+                                    {% if r.estado == 'anulado' or r.valido == 0 %}
+                                        <span class="status-badge status-anulado">ANULADO</span>
+                                    {% else %}
+                                        <span class="status-badge status-ok">VALIDO</span>
+                                    {% endif %}
+                                </td>
                                 <td>{{ r.nombre_participante }}</td>
                                 <td>{{ r.documento }}</td>
                                 <td>{{ r.evento_nombre }}</td>
@@ -1543,6 +1741,18 @@ templates_env = Environment(
                     .btn-outline { border: 1px solid #ccc; color: #555; background: white; }
                     .timestamp { color: #666; font-size: 0.9rem; }
                     .icon { font-size: 1.1em; }
+                    
+                    /* Modal Styles */
+                    .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.5); }
+                    .modal-content { background-color: #fefefe; margin: 10% auto; padding: 20px; border: 1px solid #888; width: 90%; max-width: 500px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+                    .close { color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer; }
+                    .close:hover, .close:focus { color: black; text-decoration: none; cursor: pointer; }
+                    .form-group { margin-bottom: 15px; }
+                    .form-group label { display: block; margin-bottom: 5px; font-weight: 500; }
+                    .form-group textarea { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; min-height: 80px; }
+                    .btn-danger { background: #dc3545; color: white; border: none; }
+                    .btn-danger:hover { background: #bb2d3b; }
+                    .status-anulado { background: #f8d7da; color: #842029; }
                 </style>
             </head>
             <body>
@@ -1593,11 +1803,15 @@ templates_env = Environment(
                                 {% if evento.req_audio and (not a.audio_path and not a.audio_exento) %} {% set status_ok = false %} {% endif %}
                                 {% if evento.req_salud and not a.salud_doc_path %} {% set status_ok = false %} {% endif %}
                                 
-                                <tr>
+                                <tr {% if a.estado == 'anulado' or a.valido == 0 %}style="background-color: #f8d7da33;"{% endif %}>
                                     <td><strong>{{ a.nombre_participante }}</strong></td>
                                     <td>{{ a.documento }}</td>
                                     <td>
-                                        {% if status_ok %}
+                                        {% if a.estado == 'anulado' or a.valido == 0 %}
+                                        <div title="Motivo: {{ a.motivo_anulacion }}&#10;Por: {{ a.usuario_anulacion }}">
+                                            <span class="status-badge status-anulado"><span class="icon">🚫</span> ANULADO</span>
+                                        </div>
+                                        {% elif status_ok %}
                                         <span class="status-badge status-ok"><span class="icon">🟢</span> COMPLETO</span>
                                         {% else %}
                                         <span class="status-badge status-incomplete"><span class="icon">🟡</span> INCOMPLETO</span>
@@ -1605,9 +1819,16 @@ templates_env = Environment(
                                     </td>
                                     <td class="timestamp">{{ a.fecha_hora|replace("T", " ")|replace("Z", "") }}</td>
                                     <td>
-                                        <a href="/admin/evento/{{ evento.id }}/preview/{{ a.id }}" class="btn {{ 'btn-primary' if not status_ok else 'btn-outline' }}">
-                                            {{ '🔍 Verificar' if not status_ok else '👁️ Ver' }}
-                                        </a>
+                                        <div class="btn-group" style="display:flex; gap:5px;">
+                                            <a href="/admin/evento/{{ evento.id }}/preview/{{ a.id }}" class="btn {{ 'btn-primary' if not status_ok else 'btn-outline' }}">
+                                                {{ '🔍 Verificar' if not status_ok else '👁️ Ver' }}
+                                            </a>
+                                            {% if a.estado != 'anulado' and a.valido != 0 %}
+                                            <button onclick="openAnularModal({{ a.id }}, '{{ a.nombre_participante|e }}', '{{ a.documento|e }}')" class="btn btn-danger" style="padding: 6px 10px;" title="Anular Deslinde">
+                                                🗑️
+                                            </button>
+                                            {% endif %}
+                                        </div>
                                     </td>
                                 </tr>
                                 {% else %}
@@ -1643,19 +1864,100 @@ templates_env = Environment(
                     </div>
                     <!-- /ADMIN PATCH: pagination + counter -->
                 </div>
+                
+                <!-- Modal Anulacion -->
+                <div id="anularModal" class="modal">
+                    <div class="modal-content">
+                        <span class="close" onclick="closeAnularModal()">&times;</span>
+                        <h2 style="margin-top:0;">Anular Deslinde</h2>
+                        <p>Va a anular el deslinde de: <strong id="modalNombre"></strong> (<span id="modalDocumento"></span>)</p>
+                        <p class="file-hint" style="color: #842029;">⚠️ Esta acción es irreversible (lógica) y permitirá firmar de nuevo.</p>
+                        
+                        <form id="anularForm" onsubmit="submitAnulacion(event)">
+                            <input type="hidden" id="anularAceptacionId" name="aceptacion_id">
+                            <div class="form-group">
+                                <label for="motivo">Motivo de la anulación (Requerido):</label>
+                                <textarea id="motivo" name="motivo" required placeholder="Ej: Error en datos, documento ilegible, solicitud del usuario..."></textarea>
+                            </div>
+                            <div style="text-align: right; display: flex; justify-content: flex-end; gap: 10px;">
+                                <button type="button" class="btn btn-outline" onclick="closeAnularModal()">Cancelar</button>
+                                <button type="submit" class="btn btn-danger">Confirmar Anulación</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
                 <script>
                     const searchBox = document.querySelector('input[name="q"]');
-                    if (searchBox.value) {
+                    if (searchBox && searchBox.value) {
                         searchBox.focus();
                         const len = searchBox.value.length;
                         searchBox.setSelectionRange(len, len);
-                    } else {
+                    } else if (searchBox) {
                         // Auto-refresh solo si el input está vacío y no hay interacción
-                        setTimeout(function() {
-                            if (!searchBox.value) {
+                        // Desactivado si hay modal abierto
+                        let refreshTimer = setTimeout(function() {
+                            if (!searchBox.value && document.getElementById("anularModal").style.display !== "block") {
                                 window.location.reload();
                             }
                         }, 10000);
+                    }
+
+                    // Modal Logic
+                    const modal = document.getElementById("anularModal");
+                    
+                    function openAnularModal(id, nombre, documento) {
+                        document.getElementById("anularAceptacionId").value = id;
+                        document.getElementById("modalNombre").textContent = nombre;
+                        document.getElementById("modalDocumento").textContent = documento;
+                        document.getElementById("motivo").value = "";
+                        modal.style.display = "block";
+                    }
+                    
+                    function closeAnularModal() {
+                        modal.style.display = "none";
+                    }
+                    
+                    window.onclick = function(event) {
+                        if (event.target == modal) {
+                            closeAnularModal();
+                        }
+                    }
+                    
+                    async function submitAnulacion(e) {
+                        e.preventDefault();
+                        const id = document.getElementById("anularAceptacionId").value;
+                        const motivo = document.getElementById("motivo").value;
+                        
+                        if(!motivo.trim()) {
+                            alert("El motivo es requerido.");
+                            return;
+                        }
+                        
+                        if(!confirm("¿Está seguro de anular este deslinde? Quedará registrado en auditoría.")) {
+                            return;
+                        }
+                        
+                        try {
+                            const formData = new FormData();
+                            formData.append("aceptacion_id", id);
+                            formData.append("motivo", motivo);
+                            
+                            const response = await fetch("/admin/anular_aceptacion", {
+                                method: "POST",
+                                body: formData
+                            });
+                            
+                            if (response.ok) {
+                                // alert("Deslinde anulado correctamente.");
+                                window.location.reload();
+                            } else {
+                                const txt = await response.text();
+                                alert("Error al anular: " + txt);
+                            }
+                        } catch (err) {
+                            alert("Error de red: " + err);
+                        }
                     }
                 </script>
             </body>
@@ -2003,7 +2305,10 @@ templates_env.filters["fecha_ddmmaaaa"] = fecha_ddmmaaaa
 # ------------------------------------------------------------------------------
 # Configuración de base de datos SQLite y Almacenamiento
 # ------------------------------------------------------------------------------
-DEFAULT_DB_PATH = "/var/lib/encarreraok/encarreraok.sqlite3"
+# Unificamos comportamiento: siempre usar directorio local 'data' por defecto
+# Esto facilita el despliegue simple (git pull) sin configurar /var/lib
+DEFAULT_DB_PATH = os.path.join(BASE_DIR, "data", "encarreraok.sqlite3")
+
 DB_PATH = os.environ.get("ENCARRERAOK_DB_PATH", DEFAULT_DB_PATH)
 EVIDENCIAS_DIR = os.path.join(os.path.dirname(DB_PATH), "evidencias")
 FIRMAS_DIR = os.path.join(EVIDENCIAS_DIR, "firmas")
@@ -2038,9 +2343,10 @@ def ensure_storage() -> None:
         os.makedirs(AUDIOS_DIR, exist_ok=True)
         os.makedirs(SALUD_DIR, exist_ok=True)
         # Podríamos ajustar permisos de evidencias también
-    except Exception:
-        # Entorno local dev windows etc
-        pass
+    except Exception as e:
+        app_logger.error(f"Error CRITICO inicializando almacenamiento: {e}")
+        # No silenciar error crítico
+        raise
 
 
 def normalizar_documento_helper(doc: str) -> str:
@@ -2103,6 +2409,23 @@ def ensure_schema_migrations(conn: sqlite3.Connection) -> None:
             # Default v1_1 para registros viejos
             cur.execute(f"ALTER TABLE aceptaciones ADD COLUMN deslinde_version TEXT DEFAULT '{DEFAULT_DESLINDE_VERSION}'")
             app_logger.info("Migración aplicada: columna deslinde_version agregada")
+
+        # TAREA 4 (Anulación): Campos de auditoría para anulación lógica
+        if "estado" not in columns:
+            app_logger.info("Migración: agregando columna 'estado'")
+            cur.execute("ALTER TABLE aceptaciones ADD COLUMN estado TEXT DEFAULT 'valido'")
+        
+        if "fecha_anulacion" not in columns:
+            app_logger.info("Migración: agregando columna 'fecha_anulacion'")
+            cur.execute("ALTER TABLE aceptaciones ADD COLUMN fecha_anulacion TEXT")
+            
+        if "motivo_anulacion" not in columns:
+            app_logger.info("Migración: agregando columna 'motivo_anulacion'")
+            cur.execute("ALTER TABLE aceptaciones ADD COLUMN motivo_anulacion TEXT")
+            
+        if "usuario_anulacion" not in columns:
+            app_logger.info("Migración: agregando columna 'usuario_anulacion'")
+            cur.execute("ALTER TABLE aceptaciones ADD COLUMN usuario_anulacion TEXT")
             
         # TAREA 4 (User Request): Migración anulación (soft-delete) en aceptaciones
         if "anulado" not in columns:
@@ -2345,6 +2668,8 @@ def init_db() -> None:
 def get_evento(evento_id: int) -> Optional[Dict[str, Any]]:
     """Obtiene un evento por id."""
     conn = get_connection()
+    # FIX URGENTE: Asegurar row_factory
+    conn.row_factory = sqlite3.Row
     try:
         cur = conn.cursor()
         cur.execute("SELECT * FROM eventos WHERE id = ?", (evento_id,))
@@ -2398,6 +2723,10 @@ def aceptacion_existente(conn: sqlite3.Connection, evento_id: int, documento_nor
     TAREA 1: Código defensivo para verificar duplicados.
     Detecta si la columna 'valido' existe antes de usarla.
     """
+    # FIX URGENTE: Asegurar row_factory si no viene configurada
+    if conn.row_factory != sqlite3.Row:
+        conn.row_factory = sqlite3.Row
+
     if not documento_norm:
         return False
         
@@ -2415,7 +2744,7 @@ def aceptacion_existente(conn: sqlite3.Connection, evento_id: int, documento_nor
             (evento_id, documento_norm)
         )
     else:
-        # Si NO existe, usar query legacy (compatible)
+        # Si NO existe, asumir que todos son válidos (legacy)
         cur.execute(
             "SELECT 1 FROM aceptaciones WHERE evento_id = ? AND documento_norm = ? LIMIT 1",
             (evento_id, documento_norm)
@@ -2427,6 +2756,8 @@ def aceptacion_existente(conn: sqlite3.Connection, evento_id: int, documento_nor
 def listar_eventos() -> List[Dict[str, Any]]:
     """Lista todos los eventos para filtrado."""
     conn = get_connection()
+    # FIX URGENTE: Asegurar row_factory
+    conn.row_factory = sqlite3.Row
     try:
         cur = conn.cursor()
         cur.execute("SELECT id, nombre, fecha, organizador, activo, req_firma, req_documento, req_audio, deslinde_version, friendly_intro FROM eventos ORDER BY id DESC")
@@ -2509,6 +2840,8 @@ def listar_aceptaciones(evento_id: Optional[int] = None, query: Optional[str] = 
     Filtra por nombre o documento si query se especifica.
     """
     conn = get_connection()
+    # FIX URGENTE: Asegurar row_factory
+    conn.row_factory = sqlite3.Row
     try:
         cur = conn.cursor()
         sql = """
@@ -2532,7 +2865,11 @@ def listar_aceptaciones(evento_id: Optional[int] = None, query: Optional[str] = 
                 a.salud_doc_tipo,
                 a.audio_exento,
                 a.firma_asistida,
-                a.anulado
+                a.anulado,
+                a.anulado_at,
+                a.anulado_por,
+                a.anulado_motivo,
+                a.valido
             FROM aceptaciones a
             JOIN eventos e ON e.id = a.evento_id
         """
@@ -2568,7 +2905,19 @@ def listar_aceptaciones(evento_id: Optional[int] = None, query: Optional[str] = 
         
         cur.execute(sql, tuple(params))
         rows = cur.fetchall()
-        return [dict(r) for r in rows]
+        
+        # Procesar filas para calcular estado dinámicamente
+        results = []
+        for r in rows:
+            d = dict(r)
+            # Fuente de verdad: anulado (0/1) para admin
+            if d.get('anulado'):
+                d['estado'] = 'anulado'
+            else:
+                d['estado'] = 'valido'
+            results.append(d)
+            
+        return results
     finally:
         conn.close()
 
@@ -2629,6 +2978,8 @@ def eliminar_evento_completo(evento_id: int) -> bool:
 def get_aceptacion_detalle(aceptacion_id: int) -> Optional[Dict[str, Any]]:
     """Obtiene detalle completo de una aceptación con verificación de existencia de archivos."""
     conn = get_connection()
+    # FIX URGENTE: Asegurar row_factory
+    conn.row_factory = sqlite3.Row
     try:
         cur = conn.cursor()
         cur.execute(
@@ -2657,7 +3008,12 @@ def get_aceptacion_detalle(aceptacion_id: int) -> Optional[Dict[str, Any]]:
                 a.pdf_token_expires_at,
                 a.pdf_token_revoked,
                 a.pdf_last_access_at,
-                a.pdf_access_count
+                a.pdf_access_count,
+                a.valido,
+                a.estado,
+                a.fecha_anulacion,
+                a.motivo_anulacion,
+                a.usuario_anulacion
             FROM aceptaciones a
             JOIN eventos e ON e.id = a.evento_id
             WHERE a.id = ?
@@ -2669,6 +3025,13 @@ def get_aceptacion_detalle(aceptacion_id: int) -> Optional[Dict[str, Any]]:
             return None
         
         data = dict(row)
+        
+        # Calcular estado dinámicamente
+        valido = data.get('valido')
+        if valido is not None and valido == 0:
+            data['estado'] = 'anulado'
+        else:
+            data['estado'] = 'valido'
         
         # Verificar existencia de archivos
         data['firma_exists'] = os.path.exists(data['firma_path']) if data['firma_path'] else False
@@ -2685,6 +3048,8 @@ def get_aceptacion_detalle(aceptacion_id: int) -> Optional[Dict[str, Any]]:
 def get_aceptacion_por_token(pdf_token: str) -> Optional[Dict[str, Any]]:
     """Obtiene aceptación por token público."""
     conn = get_connection()
+    # FIX URGENTE: Asegurar row_factory
+    conn.row_factory = sqlite3.Row
     try:
         cur = conn.cursor()
         cur.execute(
@@ -3463,36 +3828,42 @@ def mostrar_formulario(evento_id: int, request: Request) -> HTMLResponse:
     - Si el evento está inactivo, muestra el formulario deshabilitado.
     - Carga deslinde desde archivo según versión configurada.
     """
-    evento = get_evento(evento_id)
-    if not evento:
-        raise HTTPException(status_code=404, detail="Evento no encontrado")
-    # Normaliza booleano 'activo' (0/1 en SQLite)
-    evento["activo"] = bool(evento["activo"])
-    evento["req_firma"] = bool(evento.get("req_firma", 0))
-    evento["req_documento"] = bool(evento.get("req_documento", 0))
-    evento["req_audio"] = bool(evento.get("req_audio", 0))
-    evento["req_salud"] = bool(evento.get("req_salud", 0))
-    evento["friendly_intro"] = bool(evento.get("friendly_intro", 0)) # DESLINDE PATCH: friendly intro
+    try:
+        evento = get_evento(evento_id)
+        if not evento:
+            raise HTTPException(status_code=404, detail="Evento no encontrado")
+        # Normaliza booleano 'activo' (0/1 en SQLite)
+        evento["activo"] = bool(evento["activo"])
+        evento["req_firma"] = bool(evento.get("req_firma", 0))
+        evento["req_documento"] = bool(evento.get("req_documento", 0))
+        evento["req_audio"] = bool(evento.get("req_audio", 0))
+        evento["req_salud"] = bool(evento.get("req_salud", 0))
+        evento["friendly_intro"] = bool(evento.get("friendly_intro", 0)) # DESLINDE PATCH: friendly intro
 
-    # Obtener texto del deslinde según versión
-    version = evento.get("deslinde_version") or DEFAULT_DESLINDE_VERSION
-    texto_base = cargar_deslinde(version)
-    
-    # Reemplazar placeholders dinámicos
-    texto_final = texto_base.replace("{{NOMBRE_EVENTO}}", evento["nombre"])\
-                            .replace("{{ORGANIZADOR}}", evento["organizador"])
+        # Obtener texto del deslinde según versión
+        version = evento.get("deslinde_version") or DEFAULT_DESLINDE_VERSION
+        texto_base = cargar_deslinde(version)
+        
+        # Reemplazar placeholders dinámicos
+        texto_final = texto_base.replace("{{NOMBRE_EVENTO}}", evento["nombre"])\
+                                .replace("{{ORGANIZADOR}}", evento["organizador"])
 
-    template = templates_env.get_template("evento_form.html")
-    html = template.render(
-        evento=evento, 
-        request=request, 
-        deslinde_texto=texto_final,
-        MAX_IMAGE_DOC_MB=MAX_IMAGE_DOC_MB,
-        MAX_FIRMA_MB=MAX_FIRMA_MB,
-        MAX_AUDIO_MB=MAX_AUDIO_MB,
-        MAX_IMAGE_COMPRESS_THRESHOLD_MB=MAX_IMAGE_COMPRESS_THRESHOLD_MB
-    )
-    return HTMLResponse(content=html)
+        template = templates_env.get_template("evento_form.html")
+        html = template.render(
+            evento=evento, 
+            request=request, 
+            deslinde_texto=texto_final,
+            MAX_IMAGE_DOC_MB=MAX_IMAGE_DOC_MB,
+            MAX_FIRMA_MB=MAX_FIRMA_MB,
+            MAX_AUDIO_MB=MAX_AUDIO_MB,
+            MAX_IMAGE_COMPRESS_THRESHOLD_MB=MAX_IMAGE_COMPRESS_THRESHOLD_MB
+        )
+        return HTMLResponse(content=html)
+    except HTTPException:
+        raise
+    except Exception as e:
+        app_logger.error(f"Error mostrando formulario evento {evento_id}: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail="Error interno del servidor. Consulte logs.")
 
 
 @app.post("/e/{evento_id}", response_class=HTMLResponse)
@@ -4910,6 +5281,59 @@ def admin_revocar_token(
     )
 
 
+@app.post("/admin/anular_aceptacion")
+def admin_anular_aceptacion(
+    aceptacion_id: int = Form(...),
+    motivo: str = Form(...),
+    username: str = Depends(get_current_username)
+) -> JSONResponse:
+    """
+    Anula lógicamente una aceptación (valido=0, estado='anulado').
+    Registra auditoría.
+    Seguridad: Requiere autenticación admin explícita.
+    """
+    # VALIDACIÓN EXPLÍCITA DE ROL (Defensa en profundidad)
+    # Aunque get_current_username ya valida credenciales, reforzamos la identidad
+    # para cumplir con requisitos de seguridad estricta y auditoría.
+    expected_admin = os.environ.get("ADMIN_USER", "admin")
+    if not secrets.compare_digest(username.encode("utf8"), expected_admin.encode("utf8")):
+        app_logger.warning(f"Intento de anulación con usuario no autorizado: {username}")
+        raise HTTPException(status_code=403, detail="Acceso denegado: Se requieren permisos de administrador.")
+
+    conn = get_connection()
+    cur = conn.cursor()
+    
+    # Verificar existencia y estado actual
+    cur.execute("SELECT id, nombre_participante, documento, valido FROM aceptaciones WHERE id = ?", (aceptacion_id,))
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Aceptación no encontrada")
+    
+    # Idempotencia y fuente de verdad
+    if row["valido"] == 0:
+        # Ya está anulada, devolvemos éxito para idempotencia pero no auditamos de nuevo
+        return JSONResponse(content={"status": "ok", "message": "El deslinde ya estaba anulado anteriormente"})
+    
+    # Anular - Fuente de verdad: valido=0. Estado derivado explícito.
+    fecha_anulacion = datetime.now().isoformat()
+    try:
+        cur.execute("""
+            UPDATE aceptaciones
+            SET valido = 0,
+                estado = 'anulado',
+                fecha_anulacion = ?,
+                motivo_anulacion = ?,
+                usuario_anulacion = ?
+            WHERE id = ?
+        """, (fecha_anulacion, motivo, username, aceptacion_id))
+        conn.commit()
+        app_logger.info(f"Aceptación {aceptacion_id} anulada por {username}. Motivo: {motivo}")
+        return JSONResponse(content={"status": "ok", "message": "Anulada correctamente"})
+    except Exception as e:
+        app_logger.error(f"Error anulando aceptación {aceptacion_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
+
+
 @app.get("/admin/evento/{evento_id}/monitor", response_class=HTMLResponse)
 def admin_monitor_evento(
     evento_id: int,
@@ -4993,7 +5417,11 @@ def admin_monitor_evento(
                 a.salud_doc_path,
                 a.salud_doc_tipo,
                 a.audio_exento,
-                a.firma_asistida
+                a.firma_asistida,
+                a.valido,
+                a.fecha_anulacion,
+                a.motivo_anulacion,
+                a.usuario_anulacion
             FROM aceptaciones a
             JOIN eventos e ON e.id = a.evento_id
             WHERE {where_sql}
@@ -5004,7 +5432,17 @@ def admin_monitor_evento(
         params_list.extend([page_size, offset])
         cur.execute(sql_list, tuple(params_list))
         rows = cur.fetchall()
-        aceptaciones = [dict(r) for r in rows]
+        
+        # Calcular estado dinámicamente
+        aceptaciones = []
+        for r in rows:
+            d = dict(r)
+            valido = d.get('valido')
+            if valido is not None and valido == 0:
+                d['estado'] = 'anulado'
+            else:
+                d['estado'] = 'valido'
+            aceptaciones.append(d)
     finally:
         conn.close()
 
