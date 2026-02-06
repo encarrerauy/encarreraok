@@ -1307,10 +1307,10 @@ templates_env = Environment(
                             <td>
                                 {% if a.estado == 'anulado' %}
                                     <span class="status-badge status-anulado">ANULADO</span>
-                                    {% if a.anulado_motivo %}
-                                    <div style="font-size:0.75rem; color:#842029; margin-top:4px;">{{ a.anulado_motivo }}</div>
-                                    <div style="font-size:0.7rem; color:#666;">Por: {{ a.anulado_por }}</div>
-                                    {% endif %}
+                                    {% if a.motivo_anulacion %}
+                                     <div style="font-size:0.75rem; color:#842029; margin-top:4px;">{{ a.motivo_anulacion }}</div>
+                                     <div style="font-size:0.7rem; color:#666;">Por: {{ a.usuario_anulacion }}</div>
+                                     {% endif %}
                                 {% else %}
                                     <span class="status-badge status-ok">VALIDO</span>
                                 {% endif %}
@@ -1598,7 +1598,7 @@ templates_env = Environment(
                                 <td>{{ r.evento_nombre }}</td>
                                 <td>{{ r.fecha_hora[:10] }}</td>
                                 <td>
-                                    {% if r.anulado %}
+                                    {% if r.estado == 'anulado' %}
                                         <span style="color: #dc3545; font-weight: bold;">ANULADO</span>
                                         <a href="/admin/aceptaciones/{{ r.id }}" class="btn btn-secondary" style="padding: 5px 10px; font-size: 14px; margin-left: 5px;" target="_blank">Ver</a>
                                     {% else %}
@@ -1808,9 +1808,9 @@ templates_env = Environment(
                                     <td>{{ a.documento }}</td>
                                     <td>
                                         {% if a.estado == 'anulado' %}
-                                        <div title="Motivo: {{ a.anulado_motivo }}&#10;Por: {{ a.anulado_por }}">
-                                            <span class="status-badge status-anulado"><span class="icon">🚫</span> ANULADO</span>
-                                        </div>
+                                         <div title="Motivo: {{ a.motivo_anulacion }}&#10;Por: {{ a.usuario_anulacion }}">
+                                             <span class="status-badge status-anulado"><span class="icon">🚫</span> ANULADO</span>
+                                         </div>
                                         {% elif status_ok %}
                                         <span class="status-badge status-ok"><span class="icon">🟢</span> COMPLETO</span>
                                         {% else %}
@@ -2428,13 +2428,13 @@ def ensure_schema_migrations(conn: sqlite3.Connection) -> None:
             cur.execute("ALTER TABLE aceptaciones ADD COLUMN usuario_anulacion TEXT")
             
         # TAREA 4 (User Request): Migración anulación (soft-delete) en aceptaciones
-        if "anulado" not in columns:
-            app_logger.info("Iniciando migración: agregando columnas de anulación a 'aceptaciones'")
-            cur.execute("ALTER TABLE aceptaciones ADD COLUMN anulado INTEGER DEFAULT 0")
-            cur.execute("ALTER TABLE aceptaciones ADD COLUMN anulado_at TEXT")
-            cur.execute("ALTER TABLE aceptaciones ADD COLUMN anulado_por TEXT")
-            cur.execute("ALTER TABLE aceptaciones ADD COLUMN anulado_motivo TEXT")
-            app_logger.info("Migración aplicada: columnas de anulación agregadas")
+        # if "anulado" not in columns:
+        #     app_logger.info("Iniciando migración: agregando columnas de anulación a 'aceptaciones'")
+        #     cur.execute("ALTER TABLE aceptaciones ADD COLUMN anulado INTEGER DEFAULT 0")
+        #     cur.execute("ALTER TABLE aceptaciones ADD COLUMN anulado_at TEXT")
+        #     cur.execute("ALTER TABLE aceptaciones ADD COLUMN anulado_por TEXT")
+        #     cur.execute("ALTER TABLE aceptaciones ADD COLUMN anulado_motivo TEXT")
+        #     app_logger.info("Migración aplicada: columnas de anulación agregadas")
             
     except sqlite3.OperationalError as e:
         app_logger.error(f"Error en migración de esquema: {e}")
@@ -2865,10 +2865,10 @@ def listar_aceptaciones(evento_id: Optional[int] = None, query: Optional[str] = 
                 a.salud_doc_tipo,
                 a.audio_exento,
                 a.firma_asistida,
-                a.anulado,
-                a.anulado_at,
-                a.anulado_por,
-                a.anulado_motivo
+                a.valido,
+                a.fecha_anulacion,
+                a.usuario_anulacion,
+                a.motivo_anulacion
             FROM aceptaciones a
             JOIN eventos e ON e.id = a.evento_id
         """
@@ -2909,8 +2909,8 @@ def listar_aceptaciones(evento_id: Optional[int] = None, query: Optional[str] = 
         results = []
         for r in rows:
             d = dict(r)
-            # Fuente de verdad: anulado (0/1) para admin
-            if d.get('anulado'):
+            # Fuente de verdad: valido (0/1) para admin
+            if d.get('valido') == 0:
                 d['estado'] = 'anulado'
             else:
                 d['estado'] = 'valido'
@@ -3008,10 +3008,10 @@ def get_aceptacion_detalle(aceptacion_id: int) -> Optional[Dict[str, Any]]:
                 a.pdf_token_revoked,
                 a.pdf_last_access_at,
                 a.pdf_access_count,
-                a.anulado,
-                a.anulado_at,
-                a.anulado_por,
-                a.anulado_motivo
+                a.valido,
+                a.fecha_anulacion,
+                a.usuario_anulacion,
+                a.motivo_anulacion
             FROM aceptaciones a
             JOIN eventos e ON e.id = a.evento_id
             WHERE a.id = ?
@@ -3025,7 +3025,7 @@ def get_aceptacion_detalle(aceptacion_id: int) -> Optional[Dict[str, Any]]:
         data = dict(row)
         
         # Calcular estado dinámicamente
-        if data.get('anulado'):
+        if data.get('valido') == 0:
             data['estado'] = 'anulado'
         else:
             data['estado'] = 'valido'
@@ -4548,7 +4548,7 @@ def admin_anular_deslinde(
         cur = conn.cursor()
         
         # Verificar si existe y estado actual
-        cur.execute("SELECT id, anulado, documento FROM aceptaciones WHERE id = ?", (deslinde_id,))
+        cur.execute("SELECT id, valido, documento FROM aceptaciones WHERE id = ?", (deslinde_id,))
         row = cur.fetchone()
         
         if not row:
@@ -4556,17 +4556,18 @@ def admin_anular_deslinde(
             
         doc = row['documento']
         
-        if not row['anulado']:
+        if row['valido'] != 0:
             # Anular
             now_utc = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
             # Actualizamos solo campos de anulación (admin only)
             cur.execute(
                 """
                 UPDATE aceptaciones 
-                SET anulado = 1,
-                anulado_at = ?,
-                anulado_por = ?,
-                anulado_motivo = 'Anulado por admin'
+                SET valido = 0,
+                estado = 'anulado',
+                fecha_anulacion = ?,
+                usuario_anulacion = ?,
+                motivo_anulacion = 'Anulado por admin'
                 WHERE id = ?
                 """,
                 (now_utc, username, deslinde_id)
@@ -5416,10 +5417,10 @@ def admin_monitor_evento(
                 a.salud_doc_tipo,
                 a.audio_exento,
                 a.firma_asistida,
-                a.anulado,
-                a.anulado_at,
-                a.anulado_por,
-                a.anulado_motivo
+                a.valido,
+                a.fecha_anulacion,
+                a.usuario_anulacion,
+                a.motivo_anulacion
             FROM aceptaciones a
             JOIN eventos e ON e.id = a.evento_id
             WHERE {where_sql}
@@ -5435,7 +5436,7 @@ def admin_monitor_evento(
         aceptaciones = []
         for r in rows:
             d = dict(r)
-            if d.get('anulado'):
+            if d.get('valido') == 0:
                 d['estado'] = 'anulado'
             else:
                 d['estado'] = 'valido'
