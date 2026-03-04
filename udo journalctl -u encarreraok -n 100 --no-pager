@@ -1,0 +1,12 @@
+[0;1;31m×[0m encarreraok.service - encarreraOK FastAPI App
+     Loaded: loaded (]8;;file://encarreraok/etc/systemd/system/encarreraok.service/etc/systemd/system/encarreraok.service]8;;; [0;1;32menabled[0m; preset: [0;1;32menabled[0m)
+     Active: [0;1;31mfailed[0m (Result: exit-code) since Sat 2025-12-27 01:39:39 UTC; 19s ago
+   Duration: 336ms
+    Process: 342913 ExecStart=/var/www/encarreraok/venv/bin/uvicorn main:app --host 127.0.0.1 --port 8000 [0;1;31m(code=exited, status=1/FAILURE)[0m
+   Main PID: 342913 (code=exited, status=1/FAILURE)
+        CPU: 324ms
+
+Dec 27 01:39:39 encarreraok systemd[1]: encarreraok.service: Scheduled restart job, restart counter is at 5.
+Dec 27 01:39:39 encarreraok systemd[1]: [0;1;38;5;185m[0;1;39m[0;1;38;5;185mencarreraok.service: Start request repeated too quickly.[0m
+Dec 27 01:39:39 encarreraok systemd[1]: [0;1;38;5;185m[0;1;39m[0;1;38;5;185mencarreraok.service: Failed with result 'exit-code'.[0m
+Dec 27 01:39:39 encarreraok systemd[1]: [0;1;31m[0;1;39m[0;1;31mFailed to start encarreraok.service - encarreraOK FastAPI App.[0m
