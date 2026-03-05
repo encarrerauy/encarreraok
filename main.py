@@ -1,4 +1,4 @@
-﻿# EncarreraOK - MVP de deslindes digitales
+# EncarreraOK - MVP de deslindes digitales
 #
 # Requisitos del MVP:
 # - FastAPI + Uvicorn (sirve bajo systemd)
@@ -43,7 +43,24 @@ from typing import Optional, List, Dict, Any
 import io
 import logging
 import traceback
-from logging.handlers import RotatingFileHandler
+from app.db.database import get_connection, DB_PATH
+from app.services.evidencias_service import (
+    guardar_firma, guardar_documentos, guardar_documento_salud, guardar_audio,
+    ensure_evidencias_storage,
+    MAX_IMAGE_DOC_MB, MAX_FIRMA_MB, MAX_AUDIO_MB, MAX_IMAGE_COMPRESS_THRESHOLD_MB
+)
+from app.services import aceptaciones_service
+from app.utils.helpers import (
+    normalizar_documento_helper,
+    fecha_ddmmaaaa,
+    ensure_storage,
+    cargar_deslinde,
+    calcular_hash_archivo,
+    DEFAULT_DESLINDE_VERSION,
+    setup_logging,
+    generar_token,
+    limpiar_nombre_archivo
+)
 
 # Intentar importar PIL para compresión de imágenes (opcional)
 try:
@@ -56,108 +73,7 @@ except ImportError:
 # Configuración de logging
 # ------------------------------------------------------------------------------
 
-def setup_logging() -> None:
-    """Configura logging a archivo con rotación."""
-    # Intentar primero en /var/log, fallback a directorio local
-    target_dir = "/var/log/encarreraok"
-    
-    try:
-        os.makedirs(target_dir, exist_ok=True)
-        # Verificar escritura intentando crear un archivo temporal
-        test_file = os.path.join(target_dir, ".test_write")
-        with open(test_file, 'w') as f:
-            f.write('ok')
-        os.remove(test_file)
-    except Exception:
-        # Fallback: usar directorio actual si no se puede escribir en /var/log
-        target_dir = os.path.dirname(os.path.abspath(__file__))
-    
-    final_log_file = os.path.join(target_dir, "app.log")
-    
-    # Handler con rotación (10MB, 5 backups)
-    handler = RotatingFileHandler(
-        final_log_file,
-        maxBytes=10 * 1024 * 1024,
-        backupCount=5,
-        encoding='utf-8'
-    )
-    formatter = logging.Formatter(
-        '%(asctime)s [%(levelname)s] %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
-    handler.setFormatter(formatter)
-    
-    logger = logging.getLogger('encarreraok')
-    logger.setLevel(logging.INFO)
-    logger.addHandler(handler)
-    return logger
-
 app_logger = setup_logging()
-
-def normalizar_documento_helper(documento: str) -> Optional[str]:
-    """
-    Normaliza un número de documento para búsqueda y persistencia.
-    Elimina todo lo que no sea dígito.
-    Si el resultado es vacío, retorna None (o string vacío, según uso).
-    """
-    if not documento:
-        return None
-    # Filtrar solo dígitos
-    norm = "".join(filter(str.isdigit, str(documento)))
-    return norm if norm else None
-
-
-# ------------------------------------------------------------------------------
-# Constantes
-# ------------------------------------------------------------------------------
-# Límites de tamaño por tipo de evidencia (prevención 413)
-MAX_IMAGE_DOC_MB = 4  # Imagen documento: máx 4 MB por archivo
-MAX_FIRMA_MB = 1      # Firma canvas: máx 1 MB
-MAX_AUDIO_MB = 5      # Audio: máx 5 MB
-# Límites para compresión automática
-MAX_IMAGE_COMPRESS_THRESHOLD_MB = 2  # Si supera esto, comprimir
-MAX_IMAGE_COMPRESS_TARGET_MB = 1.5   # Objetivo después de compresión
-
-# Configuración de versiones de deslinde
-LEGAL_DIR = os.environ.get("ENCARRERAOK_LEGAL_DIR", "legal")
-DESLINDES_CONFIG = {
-    "v1_1": "deslinde_v1_1_ligero.txt",
-    "v2_0": "deslinde_v2_0_legal_fuerte.txt",
-    "v3_0": "deslinde_v3_0_legal_full.txt",
-}
-DEFAULT_DESLINDE_VERSION = "v1_1"
-
-def cargar_deslinde(version: str = DEFAULT_DESLINDE_VERSION) -> str:
-    """
-    Carga el texto del deslinde desde archivo según la versión.
-    Retorna el texto base con placeholders.
-    """
-    filename = DESLINDES_CONFIG.get(version)
-    if not filename:
-        app_logger.error(f"Versión de deslinde desconocida: {version}, usando default")
-        filename = DESLINDES_CONFIG[DEFAULT_DESLINDE_VERSION]
-    
-    path = os.path.join(LEGAL_DIR, filename)
-    try:
-        with open(path, 'r', encoding='utf-8') as f:
-            return f.read()
-    except Exception as e:
-        app_logger.error(f"Error leyendo archivo de deslinde {path}: {e}")
-        # Fallback de emergencia si no se puede leer el archivo
-        return """DESLINDE DE RESPONSABILIDAD Y ACEPTACIÓN DE RIESGOS
-
-Declaro que participo en el evento deportivo {{NOMBRE_EVENTO}}, organizado por {{ORGANIZADOR}}, de manera voluntaria y bajo mi exclusiva responsabilidad.
-
-Reconozco que la participación en actividades deportivas implica riesgos inherentes, incluyendo, pero no limitándose a, caídas, lesiones físicas, traumatismos, accidentes cardiovasculares, condiciones climáticas adversas y otros riesgos propios de la actividad.
-
-Declaro encontrarme en condiciones físicas y de salud adecuadas para participar, y que he sido debidamente informado/a sobre las características del evento.
-
-Eximo de toda responsabilidad civil, penal y administrativa al organizador, auspiciantes, colaboradores, personal médico, autoridades y cualquier otra persona vinculada a la organización del evento, por cualquier daño, lesión o perjuicio que pudiera sufrir antes, durante o después de mi participación.
-
-Autorizo la utilización de mi imagen, voz y datos personales con fines de difusión, promoción y registro del evento, sin derecho a compensación económica.
-
-Declaro haber leído, comprendido y aceptado íntegramente el presente deslinde de responsabilidad."""
-
 
 # ------------------------------------------------------------------------------
 # Configuración de aplicación y plantillas Jinja2 (en memoria para el MVP)
@@ -1984,93 +1900,13 @@ templates_env = Environment(
     autoescape=select_autoescape(["html", "xml"]),
 )
 
-def fecha_ddmmaaaa(value: str) -> str:
-    try:
-        y, m, d = value.split("-")
-        return f"{d}/{m}/{y}"
-    except Exception:
-        return value
 templates_env.filters["fecha_ddmmaaaa"] = fecha_ddmmaaaa
 
 # ------------------------------------------------------------------------------
 # Configuración de base de datos SQLite y Almacenamiento
 # ------------------------------------------------------------------------------
-DEFAULT_DB_PATH = "/var/lib/encarreraok/encarreraok.sqlite3"
-DB_PATH = os.environ.get("ENCARRERAOK_DB_PATH", DEFAULT_DB_PATH)
-EVIDENCIAS_DIR = os.path.join(os.path.dirname(DB_PATH), "evidencias")
-FIRMAS_DIR = os.path.join(EVIDENCIAS_DIR, "firmas")
-DOCUMENTOS_DIR = os.path.join(EVIDENCIAS_DIR, "documentos")
-AUDIOS_DIR = os.path.join(EVIDENCIAS_DIR, "audios")
-SALUD_DIR = os.path.join(EVIDENCIAS_DIR, "salud")
-
-
-def ensure_storage() -> None:
-    """
-    Garantiza que directorios de DB y evidencias existan con permisos.
-    """
-    # Directorio base y DB
-    db_dir = os.path.dirname(DB_PATH)
-    try:
-        os.makedirs(db_dir, exist_ok=True)
-        # Permisos 0750 (rwxr-x---) para directorio base
-        try:
-            os.chmod(db_dir, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP | stat.S_IXGRP)
-        except Exception:
-            pass
-            
-        if os.path.exists(DB_PATH):
-            try:
-                os.chmod(DB_PATH, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP)
-            except Exception:
-                pass
-                
-        # Directorios de evidencias
-        os.makedirs(FIRMAS_DIR, exist_ok=True)
-        os.makedirs(DOCUMENTOS_DIR, exist_ok=True)
-        os.makedirs(AUDIOS_DIR, exist_ok=True)
-        os.makedirs(SALUD_DIR, exist_ok=True)
-        # Podríamos ajustar permisos de evidencias también
-    except Exception:
-        # Entorno local dev windows etc
-        pass
-
-
-def normalizar_documento_helper(doc: str) -> str:
-    """Normaliza documento: quita puntos, guiones, espacios y pasa a mayúsculas."""
-    if not doc:
-        return ""
-    return re.sub(r"[.\-\s]", "", doc).upper()
-
-
-def normalizar_documento_helper(doc: str) -> str:
-    """Normaliza documento: quita puntos, guiones, espacios y pasa a mayúsculas."""
-    if not doc:
-        return ""
-    return re.sub(r"[.\-\s]", "", doc).upper()
-
-
-def get_connection() -> sqlite3.Connection:
-    """
-    Crea una conexión a la base SQLite.
-    """
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
-# ------------------------------------------------------------------------------
-# MIGRACIONES Y ESQUEMA (SQLite)
-# ------------------------------------------------------------------------------
-# REGLA DE PROYECTO:
-# - SQLite NO usa ORM ni migraciones externas.
-# - Todo cambio de esquema debe:
-#     1) Tener migración automática en startup (ensure_schema_migrations).
-#     2) Tener código defensivo si la columna aún no existe.
-#     3) Nunca provocar un error 500 en runtime.
-# NO cambiar comportamiento funcional del sistema.
-# NO agregar dependencias externas.
-# NO usar Alembic.
-# NO usar ORM.
+# DB_PATH imported from app.db.database
+# EVIDENCIAS_DIR y otros directorios movidos a app.services.evidencias_service
 
 def ensure_schema_migrations(conn: sqlite3.Connection) -> None:
     """
@@ -2344,76 +2180,6 @@ def get_evento(evento_id: int) -> Optional[Dict[str, Any]]:
         conn.close()
 
 
-def insertar_aceptacion(
-    evento_id: int,
-    nombre_participante: str,
-    documento: str,
-    fecha_hora: str,
-    ip: str,
-    user_agent: str,
-    deslinde_hash_sha256: str,
-    firma_path: Optional[str] = None,
-    doc_frente_path: Optional[str] = None,
-    doc_dorso_path: Optional[str] = None,
-    audio_path: Optional[str] = None,
-    salud_doc_path: Optional[str] = None,
-    salud_doc_tipo: Optional[str] = None,
-    audio_exento: int = 0,
-    firma_asistida: int = 0,
-    pdf_token: Optional[str] = None,
-    documento_norm: Optional[str] = None,
-    deslinde_version: str = DEFAULT_DESLINDE_VERSION,
-) -> int:
-    """Inserta una aceptación y devuelve el ID creado."""
-    conn = get_connection()
-    try:
-        cur = conn.cursor()
-        cur.execute(
-            """
-            INSERT INTO aceptaciones (
-                evento_id, nombre_participante, documento, fecha_hora, ip, user_agent, deslinde_hash_sha256, firma_path, doc_frente_path, doc_dorso_path, audio_path, salud_doc_path, salud_doc_tipo, audio_exento, firma_asistida, pdf_token, documento_norm, deslinde_version
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (evento_id, nombre_participante, documento, fecha_hora, ip, user_agent, deslinde_hash_sha256, firma_path, doc_frente_path, doc_dorso_path, audio_path, salud_doc_path, salud_doc_tipo, audio_exento, firma_asistida, pdf_token, documento_norm, deslinde_version),
-        )
-        conn.commit()
-        return cur.lastrowid
-    finally:
-        conn.close()
-
-
-
-def aceptacion_existente(conn: sqlite3.Connection, evento_id: int, documento_norm: str) -> bool:
-    """
-    TAREA 1: Código defensivo para verificar duplicados.
-    Detecta si la columna 'valido' existe antes de usarla.
-    """
-    if not documento_norm:
-        return False
-        
-    cur = conn.cursor()
-    
-    # Detectar si existe columna 'valido'
-    cur.execute("PRAGMA table_info(aceptaciones)")
-    columns = [info[1] for info in cur.fetchall()]
-    has_valido = "valido" in columns
-    
-    if has_valido:
-        # Si existe, filtrar por valido=1
-        cur.execute(
-            "SELECT 1 FROM aceptaciones WHERE evento_id = ? AND documento_norm = ? AND valido = 1 LIMIT 1",
-            (evento_id, documento_norm)
-        )
-    else:
-        # Si NO existe, usar query legacy (compatible)
-        cur.execute(
-            "SELECT 1 FROM aceptaciones WHERE evento_id = ? AND documento_norm = ? LIMIT 1",
-            (evento_id, documento_norm)
-        )
-        
-    return cur.fetchone() is not None
-
-
 def listar_eventos() -> List[Dict[str, Any]]:
     """Lista todos los eventos para filtrado."""
     conn = get_connection()
@@ -2492,114 +2258,6 @@ def actualizar_evento(
         conn.close()
 
 
-def listar_aceptaciones(evento_id: Optional[int] = None, query: Optional[str] = None) -> List[Dict[str, Any]]:
-    """
-    Lista aceptaciones con datos del evento (join simple). 
-    Filtra por evento si se especifica.
-    Filtra por nombre o documento si query se especifica.
-    """
-    conn = get_connection()
-    try:
-        cur = conn.cursor()
-        sql = """
-            SELECT
-                a.id,
-                a.evento_id,
-                e.nombre AS evento_nombre,
-                e.fecha AS evento_fecha,
-                e.organizador AS evento_organizador,
-                a.nombre_participante,
-                a.documento,
-                a.fecha_hora,
-                a.ip,
-                a.user_agent,
-                a.deslinde_hash_sha256,
-                a.firma_path,
-                a.doc_frente_path,
-                a.doc_dorso_path,
-                a.audio_path,
-                a.salud_doc_path,
-                a.salud_doc_tipo,
-                a.audio_exento,
-                a.firma_asistida
-            FROM aceptaciones a
-            JOIN eventos e ON e.id = a.evento_id
-        """
-        params = []
-        conditions = []
-        
-        if evento_id is not None:
-            conditions.append("a.evento_id = ?")
-            params.append(evento_id)
-            
-        if query:
-            # Búsqueda insensible a mayúsculas/minúsculas simple
-            # P1.1 - Fix buscador por documento: soporte parcial y normalizado
-            q_norm = "".join(filter(str.isdigit, query))
-            
-            # Siempre buscamos por nombre
-            clauses = ["a.nombre_participante LIKE ?"]
-            params_list = [f"%{query}%"]
-            
-            # Si hay suficientes dígitos, buscamos también por documento normalizado
-            # (tolerancia a formato y búsqueda parcial)
-            if len(q_norm) >= 3:
-                clauses.append("a.documento_norm LIKE ?")
-                params_list.append(f"%{q_norm}%")
-            
-            conditions.append(f"({' OR '.join(clauses)})")
-            params.extend(params_list)
-            
-        if conditions:
-            sql += " WHERE " + " AND ".join(conditions)
-        
-        sql += " ORDER BY a.id DESC"
-        
-        cur.execute(sql, tuple(params))
-        rows = cur.fetchall()
-        return [dict(r) for r in rows]
-    finally:
-        conn.close()
-
-
-def borrar_evidencias_fisicas(aceptaciones: List[Dict[str, Any]]):
-    """Borra archivos físicos de una lista de aceptaciones."""
-    count = 0
-    for a in aceptaciones:
-        paths = [
-            a.get('firma_path'),
-            a.get('doc_frente_path'),
-            a.get('doc_dorso_path'),
-            a.get('audio_path'),
-            a.get('salud_doc_path')
-        ]
-        for p in paths:
-            if p and os.path.exists(p):
-                try:
-                    os.remove(p)
-                    count += 1
-                except OSError as e:
-                    app_logger.error(f"Error borrando archivo {p}: {e}")
-    return count
-
-
-def eliminar_aceptaciones_por_ids(ids: List[int]) -> int:
-    """Elimina registros de aceptaciones por lista de IDs."""
-    if not ids:
-        return 0
-    conn = get_connection()
-    try:
-        cur = conn.cursor()
-        # SQLite no soporta arrays nativos, usamos placeholders dinámicos
-        placeholders = ','.join('?' * len(ids))
-        sql = f"DELETE FROM aceptaciones WHERE id IN ({placeholders})"
-        cur.execute(sql, ids)
-        conn.commit()
-        return cur.rowcount
-    finally:
-        conn.close()
-
-
 def eliminar_evento_completo(evento_id: int) -> bool:
     """Elimina un evento y todas sus referencias."""
     conn = get_connection()
@@ -2613,236 +2271,6 @@ def eliminar_evento_completo(evento_id: int) -> bool:
         return True
     finally:
         conn.close()
-
-
-def get_aceptacion_detalle(aceptacion_id: int) -> Optional[Dict[str, Any]]:
-    """Obtiene detalle completo de una aceptación con verificación de existencia de archivos."""
-    conn = get_connection()
-    try:
-        cur = conn.cursor()
-        cur.execute(
-            """
-            SELECT
-                a.id,
-                a.evento_id,
-                e.nombre AS evento_nombre,
-                e.fecha AS evento_fecha,
-                e.organizador AS evento_organizador,
-                a.nombre_participante,
-                a.documento,
-                a.fecha_hora,
-                a.ip,
-                a.user_agent,
-                a.deslinde_hash_sha256,
-                a.firma_path,
-                a.doc_frente_path,
-                a.doc_dorso_path,
-                a.audio_path,
-                a.salud_doc_path,
-                a.salud_doc_tipo,
-                a.audio_exento,
-                a.firma_asistida,
-                a.pdf_token,
-                a.pdf_token_expires_at,
-                a.pdf_token_revoked,
-                a.pdf_last_access_at,
-                a.pdf_access_count
-            FROM aceptaciones a
-            JOIN eventos e ON e.id = a.evento_id
-            WHERE a.id = ?
-            """,
-            (aceptacion_id,)
-        )
-        row = cur.fetchone()
-        if not row:
-            return None
-        
-        data = dict(row)
-        
-        # Verificar existencia de archivos
-        data['firma_exists'] = os.path.exists(data['firma_path']) if data['firma_path'] else False
-        data['doc_frente_exists'] = os.path.exists(data['doc_frente_path']) if data['doc_frente_path'] else False
-        data['doc_dorso_exists'] = os.path.exists(data['doc_dorso_path']) if data['doc_dorso_path'] else False
-        data['audio_exists'] = os.path.exists(data['audio_path']) if data['audio_path'] else False
-        data['salud_doc_exists'] = os.path.exists(data['salud_doc_path']) if data['salud_doc_path'] else False
-        
-        return data
-    finally:
-        conn.close()
-
-
-def get_aceptacion_por_token(pdf_token: str) -> Optional[Dict[str, Any]]:
-    """Obtiene aceptación por token público."""
-    conn = get_connection()
-    try:
-        cur = conn.cursor()
-        cur.execute(
-            """
-            SELECT
-                a.id,
-                a.evento_id,
-                e.nombre AS evento_nombre,
-                e.fecha AS evento_fecha,
-                e.organizador AS evento_organizador,
-                a.nombre_participante,
-                a.documento,
-                a.fecha_hora,
-                a.ip,
-                a.user_agent,
-                a.deslinde_hash_sha256,
-                a.firma_path,
-                a.doc_frente_path,
-                a.doc_dorso_path,
-                a.audio_path,
-                a.salud_doc_path,
-                a.salud_doc_tipo,
-                a.audio_exento,
-                a.firma_asistida,
-                a.pdf_token,
-                a.pdf_token_expires_at,
-                a.pdf_token_revoked,
-                a.pdf_last_access_at,
-                a.pdf_access_count
-            FROM aceptaciones a
-            JOIN eventos e ON e.id = a.evento_id
-            WHERE a.pdf_token = ?
-            """,
-            (pdf_token,)
-        )
-        row = cur.fetchone()
-        if not row:
-            return None
-        
-        data = dict(row)
-        return data
-    finally:
-        conn.close()
-
-
-def revocar_pdf_token(aceptacion_id: int) -> bool:
-    """Revoca el token PDF de una aceptación (soft revoke)."""
-    conn = get_connection()
-    try:
-        cur = conn.cursor()
-        cur.execute(
-            "UPDATE aceptaciones SET pdf_token_revoked = 1 WHERE id = ?",
-            (aceptacion_id,)
-        )
-        conn.commit()
-        return cur.rowcount > 0
-    finally:
-        conn.close()
-
-
-def registrar_acceso_pdf(aceptacion_id: int):
-    """Registra un acceso exitoso al PDF."""
-    conn = get_connection()
-    try:
-        cur = conn.cursor()
-        now_utc = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
-        cur.execute(
-            """
-            UPDATE aceptaciones 
-            SET pdf_last_access_at = ?, 
-                pdf_access_count = COALESCE(pdf_access_count, 0) + 1 
-            WHERE id = ?
-            """,
-            (now_utc, aceptacion_id)
-        )
-        conn.commit()
-    except Exception as e:
-        app_logger.error(f"Error registrando acceso PDF id={aceptacion_id}: {e}")
-    finally:
-        conn.close()
-
-
-def calcular_hash_sha256(texto: str) -> str:
-    """Calcula SHA256 en hex del texto provisto."""
-    return hashlib.sha256(texto.encode("utf-8")).hexdigest()
-
-
-def calcular_hash_archivo(filepath: str) -> str:
-    """Calcula SHA256 de un archivo en disco."""
-    sha256_hash = hashlib.sha256()
-    with open(filepath, "rb") as f:
-        # Leer en chunks para eficiencia
-        for byte_block in iter(lambda: f.read(4096), b""):
-            sha256_hash.update(byte_block)
-    return sha256_hash.hexdigest()
-
-
-def comprimir_imagen(file_path: str, max_size_mb: float = MAX_IMAGE_COMPRESS_TARGET_MB) -> Optional[str]:
-    """
-    Comprime una imagen si es posible usando PIL.
-    Retorna la ruta del archivo comprimido o None si no se pudo comprimir.
-    Si PIL no está disponible, retorna None.
-    """
-    if not PIL_AVAILABLE:
-        return None
-    
-    try:
-        max_size_bytes = int(max_size_mb * 1024 * 1024)
-        
-        # Abrir imagen
-        img = Image.open(file_path)
-        original_format = img.format or 'JPEG'
-        
-        # Convertir a RGB si es necesario (para JPEG)
-        if original_format in ('JPEG', 'JPG') and img.mode != 'RGB':
-            img = img.convert('RGB')
-        
-        # Calcular tamaño actual
-        buffer = io.BytesIO()
-        img.save(buffer, format=original_format, quality=85, optimize=True)
-        current_size = buffer.tell()
-        
-        if current_size <= max_size_bytes:
-            # Ya está dentro del límite
-            return file_path
-        
-        # Reducir resolución manteniendo aspecto
-        original_width, original_height = img.size
-        ratio = (max_size_bytes / current_size) ** 0.5  # Factor de reducción
-        new_width = int(original_width * ratio)
-        new_height = int(original_height * ratio)
-        
-        # Asegurar mínimo de 800px en el lado más largo
-        if max(new_width, new_height) < 800:
-            if new_width > new_height:
-                new_width = 800
-                new_height = int(original_height * (800 / original_width))
-            else:
-                new_height = 800
-                new_width = int(original_width * (800 / original_height))
-        
-        # Redimensionar (compatible con versiones antiguas de PIL)
-        try:
-            resample = Image.Resampling.LANCZOS
-        except AttributeError:
-            resample = Image.LANCZOS
-        img_resized = img.resize((new_width, new_height), resample)
-        
-        # Intentar diferentes calidades hasta alcanzar el tamaño objetivo
-        for quality in [85, 75, 65, 55, 45]:
-            buffer = io.BytesIO()
-            img_resized.save(buffer, format=original_format, quality=quality, optimize=True)
-            if buffer.tell() <= max_size_bytes:
-                # Guardar archivo comprimido
-                with open(file_path, 'wb') as f:
-                    f.write(buffer.getvalue())
-                return file_path
-        
-        # Si aún no cumple, usar calidad mínima
-        buffer = io.BytesIO()
-        img_resized.save(buffer, format=original_format, quality=40, optimize=True)
-        if buffer.tell() <= max_size_bytes * 1.2:  # Tolerancia del 20%
-            with open(file_path, 'wb') as f:
-                f.write(buffer.getvalue())
-            return file_path
-        
-        return None
-    except Exception:
-        return None
 
 
 def get_deslinde_activo(evento_id: int) -> Optional[Dict[str, Any]]:
@@ -2875,7 +2303,7 @@ def insertar_deslinde(
     conn = get_connection()
     try:
         cur = conn.cursor()
-        hashv = calcular_hash_sha256(texto)
+        hashv = aceptaciones_service.calcular_hash_sha256(texto)
         fecha_creacion = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
         cur.execute(
             """
@@ -2894,495 +2322,6 @@ def insertar_deslinde(
 # ------------------------------------------------------------------------------
 # Generador PDF con soporte Unicode (TTF Embed + Identity-H)
 # ------------------------------------------------------------------------------
-class TTFFont:
-    """
-    Parser minimalista de archivos TTF para extracción de métricas y mapeo Unicode.
-    Soporta tablas: head, hhea, hmtx, cmap (format 4).
-    """
-    def __init__(self, font_path: str):
-        with open(font_path, 'rb') as f:
-            self.data = f.read()
-        
-        self.tables = {}
-        self.units_per_em = 1000
-        self.ascent = 0
-        self.descent = 0
-        self.cap_height = 0
-        self.bbox = [0, 0, 0, 0]
-        self.advance_widths = []
-        self.cmap = {}  # unicode -> gid
-        self.gid_to_unicode = {} # gid -> unicode
-        self.num_metrics = 0
-        
-        self._parse()
-
-    def _parse(self):
-        # Offset Table
-        num_tables = struct.unpack('>H', self.data[4:6])[0]
-        offset = 12
-        for _ in range(num_tables):
-            tag = self.data[offset:offset+4].decode('latin1')
-            checksum, t_offset, t_length = struct.unpack('>III', self.data[offset+4:offset+16])
-            self.tables[tag] = (t_offset, t_length)
-            offset += 16
-            
-        self._parse_head()
-        self._parse_hhea()
-        self._parse_hmtx()
-        self._parse_cmap()
-
-    def _parse_head(self):
-        if 'head' not in self.tables: return
-        off, _ = self.tables['head']
-        self.units_per_em = struct.unpack('>H', self.data[off+18:off+20])[0]
-        x_min, y_min, x_max, y_max = struct.unpack('>hhhh', self.data[off+36:off+44])
-        self.bbox = [x_min, y_min, x_max, y_max]
-
-    def _parse_hhea(self):
-        if 'hhea' not in self.tables: return
-        off, _ = self.tables['hhea']
-        self.ascent, self.descent = struct.unpack('>hh', self.data[off+4:off+8])
-        self.num_metrics = struct.unpack('>H', self.data[off+34:off+36])[0]
-
-    def _parse_hmtx(self):
-        if 'hmtx' not in self.tables: return
-        off, _ = self.tables['hmtx']
-        # Read advance widths
-        self.advance_widths = []
-        for i in range(self.num_metrics):
-            aw, lsb = struct.unpack('>Hh', self.data[off + i*4 : off + i*4 + 4])
-            self.advance_widths.append(aw)
-        
-        # We don't read LSBs for trailing glyphs to save memory/time, 
-        # usually assume last width for remaining glyphs (monospaced logic) or 0
-        
-    def _parse_cmap(self):
-        if 'cmap' not in self.tables: return
-        off, _ = self.tables['cmap']
-        num_subtables = struct.unpack('>H', self.data[off+2:off+4])[0]
-        
-        subtable_offset = 0
-        for i in range(num_subtables):
-            platform_id, encoding_id, s_off = struct.unpack('>HHI', self.data[off+4 + i*8 : off+4 + i*8 + 8])
-            # Prefer Windows Unicode (3, 1) or (3, 10)
-            if platform_id == 3 and encoding_id in (1, 10):
-                subtable_offset = off + s_off
-                break
-            # Fallback to Unicode Platform (0, *)
-            if platform_id == 0:
-                subtable_offset = off + s_off
-        
-        if subtable_offset == 0: return
-
-        format = struct.unpack('>H', self.data[subtable_offset:subtable_offset+2])[0]
-        if format == 4:
-            self._parse_cmap_format_4(subtable_offset)
-
-    def _parse_cmap_format_4(self, offset):
-        length = struct.unpack('>H', self.data[offset+2:offset+4])[0]
-        seg_count_x2 = struct.unpack('>H', self.data[offset+6:offset+8])[0]
-        seg_count = seg_count_x2 // 2
-        
-        end_counts = []
-        for i in range(seg_count):
-            pos = offset + 14 + i*2
-            end_counts.append(struct.unpack('>H', self.data[pos:pos+2])[0])
-            
-        start_counts = []
-        for i in range(seg_count):
-            pos = offset + 14 + seg_count_x2 + 2 + i*2
-            start_counts.append(struct.unpack('>H', self.data[pos:pos+2])[0])
-            
-        id_deltas = []
-        for i in range(seg_count):
-            pos = offset + 14 + seg_count_x2 + 2 + seg_count_x2 + i*2
-            id_deltas.append(struct.unpack('>h', self.data[pos:pos+2])[0])
-            
-        id_range_offsets = []
-        id_range_offsets_start = offset + 14 + seg_count_x2 * 3 + 2
-        for i in range(seg_count):
-            pos = id_range_offsets_start + i*2
-            id_range_offsets.append(struct.unpack('>H', self.data[pos:pos+2])[0])
-
-        # Map all chars (this is expensive but done once)
-        # To optimize, we could do on-demand, but for <65k chars it's fast enough in Python
-        # Iterate segments
-        for i in range(seg_count):
-            start = start_counts[i]
-            end = end_counts[i]
-            delta = id_deltas[i]
-            range_off = id_range_offsets[i]
-            
-            if start == 0xFFFF: break
-            
-            for char_code in range(start, end + 1):
-                if range_off == 0:
-                    gid = (char_code + delta) & 0xFFFF
-                else:
-                    # Address calculation based on spec
-                    range_off_loc = id_range_offsets_start + i*2
-                    glyph_index_addr = range_off_loc + range_off + (char_code - start) * 2
-                    if glyph_index_addr >= offset + length:
-                        gid = 0
-                    else:
-                        gid = struct.unpack('>H', self.data[glyph_index_addr:glyph_index_addr+2])[0]
-                        if gid != 0:
-                            gid = (gid + delta) & 0xFFFF
-                
-                if gid != 0:
-                    self.cmap[char_code] = gid
-                    self.gid_to_unicode[gid] = char_code
-
-    def get_gid(self, char_code):
-        return self.cmap.get(char_code, 0)
-
-    def get_width(self, gid):
-        if gid < len(self.advance_widths):
-            return self.advance_widths[gid]
-        # Fallback to last known width
-        if self.advance_widths:
-            return self.advance_widths[-1]
-        return 1000 # Fallback default
-
-
-class SimplePDFGenerator:
-    """
-    Generador de PDF 1.4 con soporte Unicode real (TTF Embed + Identity-H).
-    Reemplaza la implementación anterior WinAnsi para cumplir P0.6.
-    """
-    def __init__(self):
-        self.buffer = io.BytesIO()
-        self.pages_content = []
-        self.current_content = []
-        self.obj_offsets = []
-        self.obj_count = 0
-        
-        # Configuración página Letter (612x792 pt)
-        self.page_width = 612
-        self.page_height = 792
-        self.margin_left = 50
-        self.margin_top = 50
-        self.y = self.page_height - self.margin_top
-        
-        # Fuente TTF
-        self.font_path = "assets/fonts/DejaVuSans.ttf"
-        try:
-            self.font = TTFFont(self.font_path)
-            self.font_loaded = True
-        except Exception as e:
-            # Fallback a modo seguro si falla carga (aunque no debería)
-            print(f"Error cargando fuente: {e}")
-            self.font_loaded = False
-            
-        self.font_size = 10
-        self.line_height = 12
-        
-        # Tracking de GIDs usados para optimizar PDF (ToUnicode/Widths)
-        self.used_gids = set()
-        self.used_gids.add(0) # .notdef
-        
-        # Inicializar primera página
-        self._init_page_state()
-    
-    def _init_page_state(self):
-        self.current_content.append(f"BT /F1 {self.font_size} Tf\n".encode('ascii'))
-
-    def _add_page(self):
-        if self.current_content:
-            self.current_content.append(b"ET\n")
-            self.pages_content.append(b"".join(self.current_content))
-        self.current_content = []
-        self.y = self.page_height - self.margin_top
-        self._init_page_state()
-
-    def set_font_size(self, size: int):
-        self.font_size = size
-        self.line_height = int(size * 1.2)
-        if self.current_content:
-             self.current_content.append(f"/F1 {self.font_size} Tf\n".encode('ascii'))
-
-    def add_text(self, text: str):
-        """Agrega texto manejando saltos de línea y paginación con métricas reales."""
-        # 1. Convertir texto a GIDs y calcular anchos
-        gids = []
-        words = [] # Lista de (palabra_gids, ancho)
-        
-        # Normalización básica: reemplazar newlines y tabs
-        lines = text.split('\n')
-        
-        scale = self.font_size / self.font.units_per_em if self.font_loaded else 0.001
-        max_width = self.page_width - 2 * self.margin_left
-        
-        for line_text in lines:
-            current_line_gids = []
-            current_line_width = 0
-            
-            # Procesar por palabras para wrapping
-            # Split manual preservando espacios no es trivial, simplificamos:
-            # Vamos caracter a caracter acumulando en linea
-            
-            # Mejor aproximación: split por espacio
-            words_in_line = line_text.split(' ')
-            
-            for i, word in enumerate(words_in_line):
-                word_gids = []
-                word_width = 0
-                
-                # Agregar espacio previo si no es la primera palabra
-                if i > 0:
-                    space_gid = self.font.get_gid(32)
-                    self.used_gids.add(space_gid)
-                    w = self.font.get_width(space_gid) * scale
-                    word_gids.append(space_gid)
-                    word_width += w
-                
-                # Caracteres de la palabra
-                for char in word:
-                    gid = self.font.get_gid(ord(char))
-                    self.used_gids.add(gid)
-                    w = self.font.get_width(gid) * scale
-                    word_gids.append(gid)
-                    word_width += w
-                
-                # Check wrap
-                if current_line_width + word_width > max_width and current_line_gids:
-                    # Flush current line
-                    self._write_line_gids(current_line_gids)
-                    current_line_gids = []
-                    current_line_width = 0
-                    # Si era espacio inicial, quitarlo para nueva linea
-                    if word_gids and word_gids[0] == self.font.get_gid(32):
-                        w_space = self.font.get_width(self.font.get_gid(32)) * scale
-                        word_gids.pop(0)
-                        word_width -= w_space
-                
-                current_line_gids.extend(word_gids)
-                current_line_width += word_width
-                
-            self._write_line_gids(current_line_gids)
-
-    def _write_line_gids(self, gids: List[int]):
-        if not gids: return
-        
-        if self.y < self.margin_top:
-            self._add_page()
-            
-        # Convert gids to big-endian hex string
-        hex_str = "".join([f"{gid:04X}" for gid in gids])
-        
-        # Posicionar texto: 1 0 0 1 x y Tm
-        cmd = f"1 0 0 1 {self.margin_left} {self.y} Tm <{hex_str}> Tj\n"
-        self.current_content.append(cmd.encode('ascii'))
-        self.y -= self.line_height
-
-    def get_pdf_bytes(self) -> bytes:
-        # Cerrar última página
-        if self.current_content:
-            self.current_content.append(b"ET\n")
-            self.pages_content.append(b"".join(self.current_content))
-        
-        if not self.pages_content:
-            # Pagina vacia dummy
-            self.pages_content.append(b"BT /F1 12 Tf ET\n")
-
-        self.buffer = io.BytesIO()
-        self.obj_offsets = []
-        self.obj_count = 0
-        
-        def write(data: bytes):
-            self.buffer.write(data)
-
-        def start_obj():
-            self.obj_count += 1
-            self.obj_offsets.append(self.buffer.tell())
-            write(f"{self.obj_count} 0 obj\n".encode('ascii'))
-            return self.obj_count
-
-        def end_obj():
-            write(b"\nendobj\n")
-
-        # Header
-        write(b"%PDF-1.4\n%\xE2\xE3\xCF\xD3\n")
-        
-        # IDs
-        catalog_id = 1
-        pages_root_id = 2
-        font_id = 3
-        
-        # 1. Catalog
-        start_obj() # ID 1
-        write(f"<< /Type /Catalog /Pages {pages_root_id} 0 R >>".encode('ascii'))
-        end_obj()
-        
-        num_pages = len(self.pages_content)
-        # IDs dinámicos
-        # 1: Catalog, 2: Pages, 3: Type0 Font, 4: CIDFont, 5: FontDesc, 6: ToUnicode, 7: FontFile
-        cid_font_id = 4
-        font_desc_id = 5
-        to_unicode_id = 6
-        font_file_id = 7
-        
-        first_page_id = 8
-        first_content_id = first_page_id + num_pages
-        
-        # 2. Pages Root
-        start_obj() # ID 2
-        kids_refs = [f"{first_page_id + i} 0 R" for i in range(num_pages)]
-        write(f"<< /Type /Pages /Kids [{' '.join(kids_refs)}] /Count {num_pages} >>".encode('ascii'))
-        end_obj()
-        
-        # 3. Type0 Font (Composite)
-        start_obj() # ID 3
-        write(f"""<< 
-/Type /Font 
-/Subtype /Type0 
-/BaseFont /DejaVuSans 
-/Encoding /Identity-H 
-/DescendantFonts [{cid_font_id} 0 R] 
-/ToUnicode {to_unicode_id} 0 R 
->>""".encode('ascii'))
-        end_obj()
-        
-        # 4. CIDFontType2
-        start_obj() # ID 4
-        # Construir array de anchos (W)
-        # Formato: [ first_gid [ w1 w2 ... ] ... ]
-        # Para simplificar, agrupamos por rangos consecutivos o dumpamos todo si no es muy grande.
-        # Solo necesitamos anchos de los usados.
-        sorted_gids = sorted(list(self.used_gids))
-        w_array = []
-        if sorted_gids:
-            # Algoritmo simple: bloques consecutivos
-            current_block = []
-            block_start = sorted_gids[0]
-            prev_gid = block_start - 1
-            
-            for gid in sorted_gids:
-                if gid != prev_gid + 1:
-                    # Cerrar bloque anterior
-                    w_array.append(f"{block_start} [{' '.join(map(str, current_block))}]")
-                    current_block = []
-                    block_start = gid
-                
-                current_block.append(self.font.get_width(gid))
-                prev_gid = gid
-            
-            if current_block:
-                w_array.append(f"{block_start} [{' '.join(map(str, current_block))}]")
-        
-        w_str = " ".join(w_array)
-        
-        write(f"""<< 
-/Type /Font 
-/Subtype /CIDFontType2 
-/BaseFont /DejaVuSans 
-/CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> 
-/FontDescriptor {font_desc_id} 0 R 
-/DW 1000 
-/W [{w_str}] 
->>""".encode('ascii'))
-        end_obj()
-        
-        # 5. FontDescriptor
-        start_obj() # ID 5
-        # Flags 4 = Symbolic
-        write(f"""<< 
-/Type /FontDescriptor 
-/FontName /DejaVuSans 
-/Flags 4 
-/FontBBox [{self.font.bbox[0]} {self.font.bbox[1]} {self.font.bbox[2]} {self.font.bbox[3]}] 
-/ItalicAngle 0 
-/Ascent {self.font.ascent} 
-/Descent {self.font.descent} 
-/CapHeight {self.font.cap_height} 
-/StemV 80 
-/FontFile2 {font_file_id} 0 R 
->>""".encode('ascii'))
-        end_obj()
-        
-        # 6. ToUnicode CMap
-        start_obj() # ID 6
-        # Generar CMap para copiar texto
-        cmap_lines = []
-        cmap_lines.append("/CIDInit /ProcSet findresource begin")
-        cmap_lines.append("12 dict begin")
-        cmap_lines.append("begincmap")
-        cmap_lines.append("/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def")
-        cmap_lines.append("/CMapName /Adobe-Identity-UCS def")
-        cmap_lines.append("/CMapType 2 def")
-        cmap_lines.append("1 begincodespacerange")
-        cmap_lines.append("<0000> <FFFF>")
-        cmap_lines.append("endcodespacerange")
-        
-        # bfchar lines
-        # Group in chunks of 100
-        chunk_size = 100
-        gids_list = list(self.used_gids)
-        for i in range(0, len(gids_list), chunk_size):
-            chunk = gids_list[i:i+chunk_size]
-            cmap_lines.append(f"{len(chunk)} beginbfchar")
-            for gid in chunk:
-                uni = self.font.gid_to_unicode.get(gid, 0)
-                # UTF-16BE hex
-                uni_hex = f"{uni:04X}"
-                cmap_lines.append(f"<{gid:04X}> <{uni_hex}>")
-            cmap_lines.append("endbfchar")
-            
-        cmap_lines.append("endcmap")
-        cmap_lines.append("CMapName currentdict /CMap defineresource pop")
-        cmap_lines.append("end")
-        cmap_lines.append("end")
-        
-        cmap_data = "\n".join(cmap_lines).encode('ascii')
-        write(f"<< /Length {len(cmap_data)} >>\nstream\n".encode('ascii'))
-        write(cmap_data)
-        write(b"\nendstream")
-        end_obj()
-        
-        # 7. FontFile2 (Embedded TTF)
-        start_obj() # ID 7
-        write(f"<< /Length {len(self.font.data)} >>\nstream\n".encode('ascii'))
-        write(self.font.data)
-        write(b"\nendstream")
-        end_obj()
-        
-        # Pages and Content
-        for i, content in enumerate(self.pages_content):
-            page_id = first_page_id + i
-            content_id = first_content_id + i
-            
-            # Page Object
-            start_obj() 
-            write(f"<< /Type /Page /Parent {pages_root_id} 0 R /MediaBox [0 0 {self.page_width} {self.page_height}] /Contents {content_id} 0 R /Resources << /Font << /F1 {font_id} 0 R >> >> >>".encode('ascii'))
-            end_obj()
-            
-        for i, content in enumerate(self.pages_content):
-            # Content Stream Object
-            start_obj() 
-            write(f"<< /Length {len(content)} >>\nstream\n".encode('ascii'))
-            write(content)
-            write(b"\nendstream")
-            end_obj()
-            
-        # Xref
-        xref_offset = self.buffer.tell()
-        write(b"xref\n")
-        write(f"0 {self.obj_count + 1}\n".encode('ascii'))
-        write(b"0000000000 65535 f \n")
-        for offset in self.obj_offsets:
-            write(f"{offset:010d} 00000 n \n".encode('ascii'))
-            
-        # Trailer
-        write(b"trailer\n")
-        write(f"<< /Size {self.obj_count + 1} /Root {catalog_id} 0 R >>\n".encode('ascii'))
-        write(b"startxref\n")
-        write(f"{xref_offset}\n".encode('ascii'))
-        write(b"%%EOF\n")
-        
-        return self.buffer.getvalue()
-
-
-
 # ------------------------------------------------------------------------------
 # Modelos de datos (Pydantic) para documentación y validación básica
 # ------------------------------------------------------------------------------
@@ -3611,13 +2550,10 @@ def procesar_aceptacion(
         documento_norm = normalizar_documento_helper(documento)
         
         # TAREA 1: Validación de duplicados defensiva
-        conn = get_connection()
-        try:
-            if aceptacion_existente(conn, evento_id, documento_norm):
-                app_logger.warning(f"[{request_id}] Intento de duplicado bloqueado: evento={evento_id}, doc={documento_norm}")
-                raise HTTPException(status_code=400, detail="Ya existe una aceptación registrada para este documento en este evento.")
-        finally:
-            conn.close()
+        if aceptaciones_service.aceptacion_existente(evento_id, documento_norm):
+            app_logger.warning(f"[{request_id}] Intento de duplicado bloqueado: evento={evento_id}, doc={documento_norm}")
+            raise HTTPException(status_code=400, detail="Ya existe una aceptación registrada para este documento en este evento.")
+
 
         # Obtiene texto y hash del deslinde que se está aceptando
         deslinde_custom = evento.get("deslinde_texto")
@@ -3629,247 +2565,24 @@ def procesar_aceptacion(
              texto_final = texto_base.replace("{{NOMBRE_EVENTO}}", evento["nombre"])\
                                      .replace("{{ORGANIZADOR}}", evento["organizador"])
         
-        deslinde_hash_sha256 = calcular_hash_sha256(texto_final)
+        deslinde_hash_sha256 = aceptaciones_service.calcular_hash_sha256(texto_final)
         
         # Procesamiento de firma
-        firma_path_final = None
-        if firma_base64:
-            # data:image/png;base64,.....
-            # Separar encabezado si existe
-            if "," in firma_base64:
-                header, encoded = firma_base64.split(",", 1)
-            else:
-                encoded = firma_base64
-            
-            try:
-                data = base64.b64decode(encoded)
-                
-                # Validación tamaño firma (prevención 413)
-                firma_size = len(data)
-                max_firma_bytes = MAX_FIRMA_MB * 1024 * 1024
-                if firma_size > max_firma_bytes:
-                    app_logger.warning(f"[{request_id}] Firma demasiado grande: {firma_size} bytes")
-                    raise HTTPException(
-                        status_code=413,
-                        detail=f"La firma es demasiado grande. Máximo permitido: {MAX_FIRMA_MB} MB. Por favor, firme más pequeña."
-                    )
-                
-                filename = f"{uuid.uuid4()}.png"
-                filepath = os.path.join(FIRMAS_DIR, filename)
-                with open(filepath, "wb") as f:
-                    f.write(data)
-                firma_path_final = filepath
-                app_logger.info(f"[{request_id}] Firma guardada: path={filepath}, size={firma_size} bytes")
-            except HTTPException:
-                raise
-            except Exception:
-                # Si falla guardar la firma y es requerida, error.
-                if req_firma:
-                    raise HTTPException(status_code=500, detail="Error al guardar la firma")
-                # Si no es requerida pero vino data corrupta, se ignora o se loguea.
-            
+        firma_path_final = guardar_firma(firma_base64, request_id, req_firma=bool(req_firma))
+
         # Procesamiento de documentos
-        doc_frente_path_final = None
-        doc_dorso_path_final = None
-        
-        if req_documento and doc_frente and doc_dorso:
-            try:
-                # Validación tamaño documentos (prevención 413) - ANTES de guardar
-                max_doc_bytes = MAX_IMAGE_DOC_MB * 1024 * 1024
-                
-                # Validar frente
-                doc_frente.file.seek(0, os.SEEK_END)
-                size_frente = doc_frente.file.tell()
-                doc_frente.file.seek(0)
-                if size_frente > max_doc_bytes:
-                    app_logger.warning(f"[{request_id}] Doc frente demasiado grande: {size_frente} bytes")
-                    raise HTTPException(
-                        status_code=413,
-                        detail=f"La imagen del frente es demasiado grande. Máximo permitido: {MAX_IMAGE_DOC_MB} MB."
-                    )
-            
-                # Validar dorso
-                doc_dorso.file.seek(0, os.SEEK_END)
-                size_dorso = doc_dorso.file.tell()
-                doc_dorso.file.seek(0)
-                if size_dorso > max_doc_bytes:
-                    app_logger.warning(f"[{request_id}] Doc dorso demasiado grande: {size_dorso} bytes")
-                    raise HTTPException(
-                        status_code=413,
-                        detail=f"La imagen del dorso es demasiado grande. Máximo permitido: {MAX_IMAGE_DOC_MB} MB."
-                    )
-            
-                # Frente
-                ext_frente = os.path.splitext(doc_frente.filename)[1]
-                if not ext_frente: ext_frente = ".jpg"
-                filename_frente = f"{uuid.uuid4()}_frente{ext_frente}"
-                filepath_frente = os.path.join(DOCUMENTOS_DIR, filename_frente)
-                with open(filepath_frente, "wb") as buffer:
-                    shutil.copyfileobj(doc_frente.file, buffer)
-            
-                # Comprimir si es necesario (si supera 2MB)
-                if size_frente > MAX_IMAGE_COMPRESS_THRESHOLD_MB * 1024 * 1024:
-                    app_logger.info(f"[{request_id}] Comprimiendo doc frente: {size_frente} bytes")
-                    compressed = comprimir_imagen(filepath_frente, MAX_IMAGE_COMPRESS_TARGET_MB)
-                    if not compressed:
-                        # Si no se pudo comprimir, rechazar
-                        os.remove(filepath_frente)
-                        app_logger.error(f"[{request_id}] No se pudo comprimir doc frente")
-                        raise HTTPException(
-                            status_code=413,
-                            detail=f"La imagen del frente es demasiado grande y no se pudo comprimir. Máximo permitido: {MAX_IMAGE_DOC_MB} MB."
-                        )
-                    final_size_frente = os.path.getsize(filepath_frente)
-                    app_logger.info(f"[{request_id}] Doc frente comprimido: {size_frente} -> {final_size_frente} bytes")
-                else:
-                    final_size_frente = size_frente
-            
-                doc_frente_path_final = filepath_frente
-                app_logger.info(f"[{request_id}] Doc frente guardado: path={filepath_frente}, size={final_size_frente} bytes")
-            
-                # Dorso
-                ext_dorso = os.path.splitext(doc_dorso.filename)[1]
-                if not ext_dorso: ext_dorso = ".jpg"
-                filename_dorso = f"{uuid.uuid4()}_dorso{ext_dorso}"
-                filepath_dorso = os.path.join(DOCUMENTOS_DIR, filename_dorso)
-                with open(filepath_dorso, "wb") as buffer:
-                    shutil.copyfileobj(doc_dorso.file, buffer)
-            
-                # Comprimir si es necesario
-                if size_dorso > MAX_IMAGE_COMPRESS_THRESHOLD_MB * 1024 * 1024:
-                    app_logger.info(f"[{request_id}] Comprimiendo doc dorso: {size_dorso} bytes")
-                    compressed = comprimir_imagen(filepath_dorso, MAX_IMAGE_COMPRESS_TARGET_MB)
-                    if not compressed:
-                        # Si no se pudo comprimir, rechazar
-                        os.remove(filepath_dorso)
-                        if doc_frente_path_final and os.path.exists(doc_frente_path_final):
-                            os.remove(doc_frente_path_final)
-                        app_logger.error(f"[{request_id}] No se pudo comprimir doc dorso")
-                        raise HTTPException(
-                            status_code=413,
-                            detail=f"La imagen del dorso es demasiado grande y no se pudo comprimir. Máximo permitido: {MAX_IMAGE_DOC_MB} MB."
-                        )
-                    final_size_dorso = os.path.getsize(filepath_dorso)
-                    app_logger.info(f"[{request_id}] Doc dorso comprimido: {size_dorso} -> {final_size_dorso} bytes")
-                else:
-                    final_size_dorso = size_dorso
-            
-                doc_dorso_path_final = filepath_dorso
-                app_logger.info(f"[{request_id}] Doc dorso guardado: path={filepath_dorso}, size={final_size_dorso} bytes")
-                
-            except HTTPException:
-                raise
-            except Exception as e:
-                # Limpiar archivos parciales en caso de error
-                if doc_frente_path_final and os.path.exists(doc_frente_path_final):
-                    try:
-                        os.remove(doc_frente_path_final)
-                    except:
-                        pass
-                if doc_dorso_path_final and os.path.exists(doc_dorso_path_final):
-                    try:
-                        os.remove(doc_dorso_path_final)
-                    except:
-                        pass
-                raise HTTPException(status_code=500, detail="Error al guardar las imágenes del documento")
+        doc_frente_path_final, doc_dorso_path_final = guardar_documentos(doc_frente, doc_dorso, request_id)
 
-        salud_doc_path_final = None
-        if req_salud and salud_doc:
-            try:
-                max_doc_bytes = MAX_IMAGE_DOC_MB * 1024 * 1024
-
-                salud_doc.file.seek(0, os.SEEK_END)
-                salud_size = salud_doc.file.tell()
-                salud_doc.file.seek(0)
-                if salud_size > max_doc_bytes:
-                    app_logger.warning(f"[{request_id}] Doc salud demasiado grande: {salud_size} bytes")
-                    raise HTTPException(
-                        status_code=413,
-                        detail=f"El documento de salud es demasiado grande. Máximo permitido: {MAX_IMAGE_DOC_MB} MB."
-                    )
-
-                ext_salud = os.path.splitext(salud_doc.filename)[1]
-                if not ext_salud:
-                    ext_salud = ".jpg"
-                filename_salud = f"{uuid.uuid4()}{ext_salud}"
-                filepath_salud = os.path.join(SALUD_DIR, filename_salud)
-                with open(filepath_salud, "wb") as buffer:
-                    shutil.copyfileobj(salud_doc.file, buffer)
-
-                if salud_size > MAX_IMAGE_COMPRESS_THRESHOLD_MB * 1024 * 1024:
-                    app_logger.info(f"[{request_id}] Comprimiendo doc salud: {salud_size} bytes")
-                    compressed = comprimir_imagen(filepath_salud, MAX_IMAGE_COMPRESS_TARGET_MB)
-                    if not compressed:
-                        os.remove(filepath_salud)
-                        app_logger.error(f"[{request_id}] No se pudo comprimir doc salud")
-                        raise HTTPException(
-                            status_code=413,
-                            detail=f"El documento de salud es demasiado grande y no se pudo comprimir. Máximo permitido: {MAX_IMAGE_DOC_MB} MB."
-                        )
-                    final_size_salud = os.path.getsize(filepath_salud)
-                    app_logger.info(f"[{request_id}] Doc salud comprimido: {salud_size} -> {final_size_salud} bytes")
-                else:
-                    final_size_salud = salud_size
-
-                salud_doc_path_final = filepath_salud
-                app_logger.info(f"[{request_id}] Doc salud guardado: path={filepath_salud}, size={final_size_salud} bytes")
-            except HTTPException:
-                raise
-            except Exception:
-                if salud_doc_path_final and os.path.exists(salud_doc_path_final):
-                    try:
-                        os.remove(salud_doc_path_final)
-                    except Exception:
-                        pass
-                raise HTTPException(status_code=500, detail="Error al guardar el documento de salud")
+        # Procesamiento de documento de salud
+        salud_doc_path_final = guardar_documento_salud(salud_doc, request_id)
 
         # Procesamiento de audio
-        audio_path_final = None
-        if audio_base64:
-            # data:audio/webm;base64,.....
-            header = ""
-            if "," in audio_base64:
-                header, encoded = audio_base64.split(",", 1)
-            else:
-                encoded = audio_base64
-            
-            try:
-                data = base64.b64decode(encoded)
-                
-                # Validación tamaño audio backend (prevención 413)
-                max_audio_bytes = MAX_AUDIO_MB * 1024 * 1024
-                audio_size = len(data)
-                if audio_size > max_audio_bytes:
-                    app_logger.warning(f"[{request_id}] Audio demasiado grande: {audio_size} bytes")
-                    raise HTTPException(
-                        status_code=413,
-                        detail=f"El audio es demasiado grande. Máximo permitido: {MAX_AUDIO_MB} MB. Por favor, intente ser más breve."
-                    )
-                
-                # Extensión default
-                ext = ".webm"
-                if "audio/mp3" in header: ext = ".mp3"
-                elif "audio/wav" in header: ext = ".wav"
-                elif "audio/ogg" in header: ext = ".ogg"
-                elif "audio/mp4" in header: ext = ".mp4"
-                
-                filename_audio = f"{uuid.uuid4()}{ext}"
-                filepath_audio = os.path.join(AUDIOS_DIR, filename_audio)
-                with open(filepath_audio, "wb") as f:
-                    f.write(data)
-                audio_path_final = filepath_audio
-                app_logger.info(f"[{request_id}] Audio guardado: path={filepath_audio}, size={audio_size} bytes")
-            except HTTPException:
-                raise
-            except Exception:
-                if req_audio and audio_exento != 1:
-                    raise HTTPException(status_code=500, detail="Error al guardar el audio")
-                app_logger.error(f"[{request_id}] Error no bloqueante al guardar audio: {traceback.format_exc()}")
+        audio_path_final = guardar_audio(audio_base64, request_id, req_audio=bool(req_audio), audio_exento=audio_exento or 0)
         
         # Generar token público para descarga de PDF
-        pdf_token = secrets.token_urlsafe(32)
+        pdf_token = generar_token()
 
-        aceptacion_id = insertar_aceptacion(
+        aceptacion_id = aceptaciones_service.insertar_aceptacion(
             evento_id=evento_id,
             nombre_participante=nombre_participante.strip(),
             documento=documento.strip(),
@@ -4156,7 +2869,7 @@ def admin_search(q: Optional[str] = None, username: str = Depends(get_current_us
     if q:
         # Reutilizamos listar_aceptaciones que ya tiene lógica de búsqueda
         # y limitamos a 50 resultados para performance
-        resultados = listar_aceptaciones(query=q)[:50]
+        resultados = aceptaciones_service.listar_aceptaciones(query=q)[:50]
     
     template = templates_env.get_template("admin_busqueda_deslindes.html")
     html = template.render(query=q, resultados=resultados, username=username)
@@ -4307,7 +3020,7 @@ def admin_aceptaciones(
     - Ordenadas por ID descendente.
     - Soporta filtrado por evento_id.
     """
-    datos = listar_aceptaciones(evento_id=evento_id)
+    datos = aceptaciones_service.listar_aceptaciones(evento_id=evento_id)
     eventos = listar_eventos()
     
     # Prepara contexto para la plantilla
@@ -4323,119 +3036,11 @@ def admin_aceptaciones(
     return HTMLResponse(content=html)
 
 
-def _generar_bytes_pdf(aceptacion: Dict[str, Any], evento: Dict[str, Any]) -> bytes:
-    """Helper para generar el PDF legal de una aceptación."""
-    # Reconstruir texto deslinde
-    version = evento.get("deslinde_version") or DEFAULT_DESLINDE_VERSION
-    texto_base = cargar_deslinde(version)
-    texto_final = texto_base.replace("{{NOMBRE_EVENTO}}", evento["nombre"])\
-                            .replace("{{ORGANIZADOR}}", evento["organizador"])
-
-    # Verificación de consistencia de hash
-    hash_calculado = calcular_hash_sha256(texto_final)
-    hash_bd = aceptacion['deslinde_hash_sha256']
-    consistencia = "OK" if hash_calculado == hash_bd else "NO COINCIDE"
-
-    if consistencia != "OK":
-        app_logger.warning(f"Inconsistencia de hash detectada - AceptacionID: {aceptacion['id']}, EventoID: {evento['id']}. BD: {hash_bd}, Calc: {hash_calculado}")
-
-    # Generar PDF
-    pdf = SimplePDFGenerator()
-    
-    # Encabezado
-    pdf.set_font_size(14)
-    pdf.add_text("ACEPTACIÓN DE DESLINDE DE RESPONSABILIDAD")
-    pdf.set_font_size(10)
-    pdf.add_text(f"ID Aceptación: {aceptacion['id']}")
-    pdf.add_text(f"Fecha y hora de generación del documento (UTC): {datetime.utcnow().replace(microsecond=0).isoformat()}Z")
-    pdf.add_text("\n")
-    
-    # Evento
-    pdf.set_font_size(12)
-    pdf.add_text("EVENTO")
-    pdf.set_font_size(10)
-    pdf.add_text(f"Nombre: {evento['nombre']}")
-    pdf.add_text(f"Fecha: {evento['fecha']}")
-    pdf.add_text(f"Organizador: {evento['organizador']}")
-    pdf.add_text("\n")
-    
-    # Participante
-    pdf.set_font_size(12)
-    pdf.add_text("PARTICIPANTE")
-    pdf.set_font_size(10)
-    pdf.add_text(f"Nombre: {aceptacion['nombre_participante']}")
-    pdf.add_text(f"Documento: {aceptacion['documento']}")
-    pdf.add_text("\n")
-    
-    # Texto Legal
-    pdf.set_font_size(12)
-    pdf.add_text("TEXTO DEL DESLINDE ACEPTADO")
-    pdf.add_text("-" * 60) # Separador visual
-    pdf.set_font_size(9)
-    pdf.add_text(texto_final)
-    pdf.add_text("-" * 60)
-    pdf.add_text("\n")
-    
-    # Auditoría
-    pdf.set_font_size(12)
-    pdf.add_text("AUDITORÍA TÉCNICA")
-    pdf.set_font_size(10)
-    pdf.add_text(f"Hash SHA256 Deslinde (BD): {hash_bd}")
-    pdf.add_text(f"Hash SHA256 Calculado: {hash_calculado}")
-    pdf.add_text(f"Consistencia del hash: {consistencia}")
-    pdf.add_text(f"Fecha Aceptación (UTC): {aceptacion['fecha_hora']}")
-    pdf.add_text(f"Dirección IP: {aceptacion['ip']}")
-    pdf.add_text(f"User-Agent: {aceptacion['user_agent']}")
-    
-    # Bloque de evidencias solicitadas (P0.5)
-    firma_status = "PRESENTE" if aceptacion.get('firma_path') else "NO APLICA"
-    
-    doc_status = "NO APLICA"
-    if aceptacion.get('doc_frente_path') and aceptacion.get('doc_dorso_path'):
-        doc_status = "PRESENTE"
-    elif aceptacion.get('doc_frente_path') or aceptacion.get('doc_dorso_path'):
-        doc_status = "PARCIAL"
-        
-    audio_status = "NO APLICA"
-    if aceptacion.get('audio_path'):
-        audio_status = "PRESENTE"
-    elif aceptacion.get('audio_exento'):
-        audio_status = "EXENTO"
-        
-    salud_status = "PRESENTE" if aceptacion.get('salud_doc_path') else "NO APLICA"
-    
-    pdf.add_text("\n")
-    pdf.add_text("EVIDENCIAS ADJUNTAS (VERIFICAR EN SISTEMA):")
-    pdf.add_text(f"- Firma Manuscrita (Fichero): {firma_status}")
-    pdf.add_text(f"- Documento Identidad (Frente/Dorso): {doc_status}")
-    pdf.add_text(f"- Audio Aceptación: {audio_status}")
-    pdf.add_text(f"- Documento Salud: {salud_status}")
-    pdf.add_text("\n")
-    
-    # Documento de salud (detalle extra)
-    tiene_salud = "Sí" if aceptacion.get('salud_doc_path') else "No"
-    pdf.add_text(f"Documento de salud aportado: {tiene_salud}")
-    if aceptacion.get('salud_doc_path'):
-        pdf.add_text(f"Tipo de documento: {aceptacion.get('salud_doc_tipo', 'No especificado')}")
-    
-    flags = []
-    if aceptacion.get('audio_exento'): flags.append("AUDIO_EXENTO")
-    if aceptacion.get('firma_asistida'): flags.append("FIRMA_ASISTIDA")
-    if flags:
-        pdf.add_text(f"Flags: {', '.join(flags)}")
-    
-    pdf.add_text("\n")
-    pdf.set_font_size(8)
-    pdf.add_text("Documento generado automáticamente por el sistema EncarreraOK.")
-    
-    return pdf.get_pdf_bytes()
-
-
 @app.get("/aceptacion/pdf/{pdf_token}")
 def public_descargar_pdf_aceptacion(pdf_token: str):
     """Endpoint público para descargar PDF de aceptación."""
     # Buscar aceptación por token
-    aceptacion = get_aceptacion_por_token(pdf_token)
+    aceptacion = aceptaciones_service.get_aceptacion_por_token(pdf_token)
     if not aceptacion:
         # Token no existe
         app_logger.warning(f"Intento de acceso PDF con token inexistente: {pdf_token[:8]}...")
@@ -4470,10 +3075,10 @@ def public_descargar_pdf_aceptacion(pdf_token: str):
         raise HTTPException(status_code=404, detail="Evento asociado no encontrado")
 
     # Generar PDF
-    pdf_bytes = _generar_bytes_pdf(aceptacion, evento)
+    pdf_bytes = aceptaciones_service.generar_pdf_aceptacion(aceptacion, evento)
     
     # Registrar acceso exitoso
-    registrar_acceso_pdf(aceptacion["id"])
+    aceptaciones_service.registrar_acceso_pdf(aceptacion["id"])
     
     app_logger.info(f"PDF público descargado para aceptacion_id={aceptacion['id']} via token")
     
@@ -4491,7 +3096,7 @@ def admin_descargar_pdf_aceptacion(
 ):
     """Genera PDF legal de la aceptación."""
     # Obtener datos completos
-    aceptacion = get_aceptacion_detalle(aceptacion_id)
+    aceptacion = aceptaciones_service.get_aceptacion_detalle(aceptacion_id)
     if not aceptacion:
         raise HTTPException(status_code=404, detail="Aceptación no encontrada")
         
@@ -4500,7 +3105,7 @@ def admin_descargar_pdf_aceptacion(
         raise HTTPException(status_code=404, detail="Evento asociado no encontrado")
 
     # Generar PDF
-    pdf_bytes = _generar_bytes_pdf(aceptacion, evento)
+    pdf_bytes = aceptaciones_service.generar_pdf_aceptacion(aceptacion, evento)
     
     app_logger.info(f"PDF generado para aceptacion_id={aceptacion_id} evento_id={evento['id']}")
     
@@ -4525,7 +3130,7 @@ def admin_exportar_zip(
     if not evento:
         raise HTTPException(status_code=404, detail="Evento no encontrado")
         
-    aceptaciones = listar_aceptaciones(evento_id=evento_id)
+    aceptaciones = aceptaciones_service.listar_aceptaciones(evento_id=evento_id)
     if not aceptaciones:
         raise HTTPException(status_code=404, detail="No hay aceptaciones para este evento")
 
@@ -4554,7 +3159,7 @@ def admin_exportar_zip(
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
         for a in aceptaciones:
             # Crear nombre de carpeta segura: ID_Nombre (sanitizado)
-            clean_name = "".join([c for c in a['nombre_participante'] if c.isalnum() or c in (' ', '_', '-')]).strip()
+            clean_name = limpiar_nombre_archivo(a['nombre_participante'])
             folder_name = f"{a['id']}_{clean_name}"
             
             # Entrada para manifest
@@ -4588,7 +3193,7 @@ def admin_exportar_zip(
             # AJUSTE 1: Generar PDF legal en memoria e incluirlo
             try:
                 # Usar el generador centralizado para consistencia (incluye auditoría P0.5)
-                pdf_bytes = _generar_bytes_pdf(a, evento)
+                pdf_bytes = aceptaciones_service.generar_pdf_aceptacion(a, evento)
                 
                 # Escribir PDF al ZIP
                 pdf_arcname = f"{folder_name}/aceptacion.pdf"
@@ -4714,7 +3319,7 @@ def admin_gestion_eliminacion(
     if not evento:
         raise HTTPException(status_code=404, detail="Evento no encontrado")
         
-    aceptaciones = listar_aceptaciones(evento_id=evento_id)
+    aceptaciones = aceptaciones_service.listar_aceptaciones(evento_id=evento_id)
     
     template = templates_env.get_template("admin_gestion_eliminacion.html")
     html = template.render(
@@ -4741,10 +3346,10 @@ def admin_procesar_eliminacion(
     
     if tipo_eliminacion == "total":
         # 1. Obtener todas las aceptaciones para borrar archivos
-        aceptaciones = listar_aceptaciones(evento_id=evento_id)
+        aceptaciones = aceptaciones_service.listar_aceptaciones(evento_id=evento_id)
         
         # 2. Borrar archivos físicos
-        archivos_borrados = borrar_evidencias_fisicas(aceptaciones)
+        archivos_borrados = aceptaciones_service.borrar_evidencias_fisicas(aceptaciones)
         
         # 3. Borrar evento y registros (Cascade manual)
         eliminar_evento_completo(evento_id)
@@ -4769,7 +3374,7 @@ def admin_procesar_eliminacion(
         # Buscar aceptaciones anteriores a esa fecha
         # La fecha en BD es 'YYYY-MM-DDTHH:MM:SSZ' o similar ISO
         
-        aceptaciones = listar_aceptaciones(evento_id=evento_id)
+        aceptaciones = aceptaciones_service.listar_aceptaciones(evento_id=evento_id)
         a_borrar = []
         ids_borrar = []
         
@@ -4793,10 +3398,10 @@ def admin_procesar_eliminacion(
             )
             
         # Borrar archivos
-        archivos_borrados = borrar_evidencias_fisicas(a_borrar)
+        archivos_borrados = aceptaciones_service.borrar_evidencias_fisicas(a_borrar)
         
         # Borrar registros BD
-        regs_borrados = eliminar_aceptaciones_por_ids(ids_borrar)
+        regs_borrados = aceptaciones_service.eliminar_aceptaciones_por_ids(ids_borrar)
         
         msg = f"Limpieza completada. {regs_borrados} registros y {archivos_borrados} archivos eliminados anteriores a {fecha_corte}."
         
@@ -4821,7 +3426,7 @@ def admin_aceptacion_detalle(aceptacion_id: int, username: str = Depends(get_cur
     - Requiere autenticación Basic Auth.
     - Incluye todos los datos + paths + verificación de existencia de archivos.
     """
-    aceptacion = get_aceptacion_detalle(aceptacion_id)
+    aceptacion = aceptaciones_service.get_aceptacion_detalle(aceptacion_id)
     if not aceptacion:
         raise HTTPException(status_code=404, detail="Aceptación no encontrada")
     
@@ -4838,11 +3443,11 @@ def admin_revocar_token(
     """
     Revoca manualmente el token PDF de una aceptación.
     """
-    aceptacion = get_aceptacion_detalle(aceptacion_id)
+    aceptacion = aceptaciones_service.get_aceptacion_detalle(aceptacion_id)
     if not aceptacion:
         raise HTTPException(status_code=404, detail="Aceptación no encontrada")
         
-    success = revocar_pdf_token(aceptacion_id)
+    success = aceptaciones_service.revocar_pdf_token(aceptacion_id)
     if success:
         app_logger.info(f"Token PDF revocado manualmente por admin: id={aceptacion_id}, user={username}")
         msg = "Token revocado correctamente."
@@ -4989,7 +3594,7 @@ def admin_preview_evento(
     if not evento:
         raise HTTPException(status_code=404, detail="Evento no encontrado")
         
-    aceptacion = get_aceptacion_detalle(aceptacion_id)
+    aceptacion = aceptaciones_service.get_aceptacion_detalle(aceptacion_id)
     if not aceptacion:
         raise HTTPException(status_code=404, detail="Aceptación no encontrada")
         
@@ -5016,7 +3621,7 @@ def admin_servir_evidencia(
     Sirve archivos de evidencia protegidos (requiere auth).
     tipo: 'firma', 'doc_frente', 'doc_dorso', 'audio', 'salud_doc'
     """
-    aceptacion = get_aceptacion_detalle(aceptacion_id)
+    aceptacion = aceptaciones_service.get_aceptacion_detalle(aceptacion_id)
     if not aceptacion:
         raise HTTPException(status_code=404, detail="Aceptación no encontrada")
         
@@ -5098,7 +3703,7 @@ def admin_ver_evidencia_full(
     Solo lectura. No expone path real.
     """
     # Reutilizamos la lógica de obtención para seguridad
-    aceptacion = get_aceptacion_detalle(aceptacion_id)
+    aceptacion = aceptaciones_service.get_aceptacion_detalle(aceptacion_id)
     if not aceptacion:
         raise HTTPException(status_code=404, detail="Aceptación no encontrada")
     
