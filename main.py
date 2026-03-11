@@ -43,7 +43,7 @@ from typing import Optional, List, Dict, Any
 import io
 import logging
 import traceback
-from app.db.database import get_connection, DB_PATH
+from app.db.database import get_connection, DB_PATH, get_table_columns, is_postgres_connection, sql_param, sql_placeholders
 from app.services.evidencias_service import (
     guardar_firma, guardar_documentos, guardar_documento_salud, guardar_audio,
     ensure_evidencias_storage,
@@ -1914,25 +1914,35 @@ def ensure_schema_migrations(conn: sqlite3.Connection) -> None:
     Ejecuta migraciones idempotentes y seguras al inicio.
     """
     cur = conn.cursor()
+    is_postgres = is_postgres_connection(conn)
     
     # TAREA 2: Migración automática columna 'valido'
     try:
-        cur.execute("PRAGMA table_info(aceptaciones)")
-        columns = [info[1] for info in cur.fetchall()]
+        columns = get_table_columns(conn, "aceptaciones")
+        if is_postgres and not columns:
+            return
         
         if "valido" not in columns:
             app_logger.info("Iniciando migración: agregando columna 'valido' a 'aceptaciones'")
-            cur.execute("ALTER TABLE aceptaciones ADD COLUMN valido INTEGER DEFAULT 1")
+            if is_postgres:
+                cur.execute("ALTER TABLE aceptaciones ADD COLUMN IF NOT EXISTS valido INTEGER DEFAULT 1")
+            else:
+                cur.execute("ALTER TABLE aceptaciones ADD COLUMN valido INTEGER DEFAULT 1")
             app_logger.info("Migración aplicada: columna valido agregada")
             
         # TAREA 3 (User Request): Migración columna 'deslinde_version'
         if "deslinde_version" not in columns:
             app_logger.info("Iniciando migración: agregando columna 'deslinde_version' a 'aceptaciones'")
             # Default v1_1 para registros viejos
-            cur.execute(f"ALTER TABLE aceptaciones ADD COLUMN deslinde_version TEXT DEFAULT '{DEFAULT_DESLINDE_VERSION}'")
+            if is_postgres:
+                cur.execute(f"ALTER TABLE aceptaciones ADD COLUMN IF NOT EXISTS deslinde_version TEXT DEFAULT '{DEFAULT_DESLINDE_VERSION}'")
+            else:
+                cur.execute(f"ALTER TABLE aceptaciones ADD COLUMN deslinde_version TEXT DEFAULT '{DEFAULT_DESLINDE_VERSION}'")
             app_logger.info("Migración aplicada: columna deslinde_version agregada")
             
-    except sqlite3.OperationalError as e:
+    except (sqlite3.OperationalError, Exception) as e:
+        if is_postgres:
+            conn.rollback()
         app_logger.error(f"Error en migración de esquema: {e}")
 
 def init_db() -> None:
@@ -1941,16 +1951,20 @@ def init_db() -> None:
     """
     ensure_storage()
     conn = get_connection()
+    
+    # Detectar si estamos en PostgreSQL para ajustar sintaxis DDL
+    pk_type = "INTEGER PRIMARY KEY"
+    is_postgres = is_postgres_connection(conn)
+    if is_postgres:
+        pk_type = "SERIAL PRIMARY KEY"
+
     try:
-        # TAREA 2: Asegurar migraciones antes de cualquier otra operación
-        ensure_schema_migrations(conn)
-        
         cur = conn.cursor()
         # Tabla de eventos
         cur.execute(
-            """
+            f"""
             CREATE TABLE IF NOT EXISTS eventos (
-                id INTEGER PRIMARY KEY,
+                id {pk_type},
                 nombre TEXT NOT NULL,
                 fecha TEXT NOT NULL,          -- ISO: YYYY-MM-DD
                 organizador TEXT NOT NULL,
@@ -1962,62 +1976,103 @@ def init_db() -> None:
             )
             """
         )
+        if is_postgres:
+            conn.commit()
         
         # Migración: req_firma en eventos
         try:
-            cur.execute("ALTER TABLE eventos ADD COLUMN req_firma INTEGER DEFAULT 0 CHECK (req_firma IN (0,1))")
-        except sqlite3.OperationalError:
+            if is_postgres:
+                cur.execute("ALTER TABLE eventos ADD COLUMN IF NOT EXISTS req_firma INTEGER DEFAULT 0 CHECK (req_firma IN (0,1))")
+            else:
+                cur.execute("ALTER TABLE eventos ADD COLUMN req_firma INTEGER DEFAULT 0 CHECK (req_firma IN (0,1))")
+        except (sqlite3.OperationalError, Exception):
+            if is_postgres:
+                conn.rollback()
             pass
             
         # Migración: req_documento en eventos
         try:
-            cur.execute("ALTER TABLE eventos ADD COLUMN req_documento INTEGER DEFAULT 0 CHECK (req_documento IN (0,1))")
-        except sqlite3.OperationalError:
+            if is_postgres:
+                cur.execute("ALTER TABLE eventos ADD COLUMN IF NOT EXISTS req_documento INTEGER DEFAULT 0 CHECK (req_documento IN (0,1))")
+            else:
+                cur.execute("ALTER TABLE eventos ADD COLUMN req_documento INTEGER DEFAULT 0 CHECK (req_documento IN (0,1))")
+        except (sqlite3.OperationalError, Exception):
+            if is_postgres:
+                conn.rollback()
             pass
 
         # Migración: req_audio en eventos
         try:
-            cur.execute("ALTER TABLE eventos ADD COLUMN req_audio INTEGER DEFAULT 0 CHECK (req_audio IN (0,1))")
-        except sqlite3.OperationalError:
+            if is_postgres:
+                cur.execute("ALTER TABLE eventos ADD COLUMN IF NOT EXISTS req_audio INTEGER DEFAULT 0 CHECK (req_audio IN (0,1))")
+            else:
+                cur.execute("ALTER TABLE eventos ADD COLUMN req_audio INTEGER DEFAULT 0 CHECK (req_audio IN (0,1))")
+        except (sqlite3.OperationalError, Exception):
+            if is_postgres:
+                conn.rollback()
             pass
 
         try:
-            cur.execute("ALTER TABLE eventos ADD COLUMN req_salud INTEGER DEFAULT 0 CHECK (req_salud IN (0,1))")
-        except sqlite3.OperationalError:
+            if is_postgres:
+                cur.execute("ALTER TABLE eventos ADD COLUMN IF NOT EXISTS req_salud INTEGER DEFAULT 0 CHECK (req_salud IN (0,1))")
+            else:
+                cur.execute("ALTER TABLE eventos ADD COLUMN req_salud INTEGER DEFAULT 0 CHECK (req_salud IN (0,1))")
+        except (sqlite3.OperationalError, Exception):
+            if is_postgres:
+                conn.rollback()
             pass
             
         # Migración: deslinde_version en eventos (v1_1 default)
         try:
-            cur.execute("ALTER TABLE eventos ADD COLUMN deslinde_version TEXT DEFAULT 'v1_1'")
-        except sqlite3.OperationalError:
+            if is_postgres:
+                cur.execute("ALTER TABLE eventos ADD COLUMN IF NOT EXISTS deslinde_version TEXT DEFAULT 'v1_1'")
+            else:
+                cur.execute("ALTER TABLE eventos ADD COLUMN deslinde_version TEXT DEFAULT 'v1_1'")
+        except (sqlite3.OperationalError, Exception):
+            if is_postgres:
+                conn.rollback()
             pass
         
         # DESLINDE PATCH: friendly intro flag
         # Migración: friendly_intro en eventos (default 0)
         try:
-            cur.execute("ALTER TABLE eventos ADD COLUMN friendly_intro INTEGER DEFAULT 0 CHECK (friendly_intro IN (0,1))")
-        except sqlite3.OperationalError:
+            if is_postgres:
+                cur.execute("ALTER TABLE eventos ADD COLUMN IF NOT EXISTS friendly_intro INTEGER DEFAULT 0 CHECK (friendly_intro IN (0,1))")
+            else:
+                cur.execute("ALTER TABLE eventos ADD COLUMN friendly_intro INTEGER DEFAULT 0 CHECK (friendly_intro IN (0,1))")
+        except (sqlite3.OperationalError, Exception):
+            if is_postgres:
+                conn.rollback()
             pass
         # /DESLINDE PATCH
 
         # TAREA: Migración deslinde_texto (custom per event)
-        try:
-            cur.execute("ALTER TABLE eventos ADD COLUMN deslinde_texto TEXT")
-        except sqlite3.OperationalError:
-            pass
+        columns_eventos = get_table_columns(conn, "eventos")
+        if "deslinde_texto" not in columns_eventos:
+            try:
+                if is_postgres:
+                    cur.execute("ALTER TABLE eventos ADD COLUMN IF NOT EXISTS deslinde_texto TEXT")
+                else:
+                    cur.execute("ALTER TABLE eventos ADD COLUMN deslinde_texto TEXT")
+            except (sqlite3.OperationalError, Exception):
+                if is_postgres:
+                    conn.rollback()
+                pass
 
 
         # Tabla de aceptaciones
         cur.execute(
-            """
+            f"""
             CREATE TABLE IF NOT EXISTS aceptaciones (
-                id INTEGER PRIMARY KEY,
+                id {pk_type},
                 evento_id INTEGER NOT NULL,
                 nombre_participante TEXT NOT NULL,
                 documento TEXT NOT NULL,
                 fecha_hora TEXT NOT NULL,     -- ISO: YYYY-MM-DDTHH:MM:SSZ (sin zona)
                 ip TEXT NOT NULL,
                 user_agent TEXT NOT NULL,
+                valido INTEGER DEFAULT 1,
+                deslinde_version TEXT DEFAULT '{DEFAULT_DESLINDE_VERSION}',
                 deslinde_hash_sha256 TEXT,
                 firma_path TEXT,
                 doc_frente_path TEXT,
@@ -2028,81 +2083,168 @@ def init_db() -> None:
             )
             """
         )
+        if is_postgres:
+            conn.commit()
         
+        ensure_schema_migrations(conn)
+
+        # Obtener columnas actuales de aceptaciones
+        columns_aceptaciones = get_table_columns(conn, "aceptaciones")
+
         # Migración: firma_path en aceptaciones
-        try:
-            cur.execute("ALTER TABLE aceptaciones ADD COLUMN firma_path TEXT")
-        except sqlite3.OperationalError:
-            pass
+        if "firma_path" not in columns_aceptaciones:
+            try:
+                if is_postgres:
+                    cur.execute("ALTER TABLE aceptaciones ADD COLUMN IF NOT EXISTS firma_path TEXT")
+                else:
+                    cur.execute("ALTER TABLE aceptaciones ADD COLUMN firma_path TEXT")
+            except (sqlite3.OperationalError, Exception):
+                if is_postgres:
+                    conn.rollback()
+                pass
             
         # Migración: doc_frente_path y doc_dorso_path en aceptaciones
-        try:
-            cur.execute("ALTER TABLE aceptaciones ADD COLUMN doc_frente_path TEXT")
-        except sqlite3.OperationalError:
-            pass
-        try:
-            cur.execute("ALTER TABLE aceptaciones ADD COLUMN doc_dorso_path TEXT")
-        except sqlite3.OperationalError:
-            pass
+        if "doc_frente_path" not in columns_aceptaciones:
+            try:
+                if is_postgres:
+                    cur.execute("ALTER TABLE aceptaciones ADD COLUMN IF NOT EXISTS doc_frente_path TEXT")
+                else:
+                    cur.execute("ALTER TABLE aceptaciones ADD COLUMN doc_frente_path TEXT")
+            except (sqlite3.OperationalError, Exception):
+                if is_postgres:
+                    conn.rollback()
+                pass
+        
+        if "doc_dorso_path" not in columns_aceptaciones:
+            try:
+                if is_postgres:
+                    cur.execute("ALTER TABLE aceptaciones ADD COLUMN IF NOT EXISTS doc_dorso_path TEXT")
+                else:
+                    cur.execute("ALTER TABLE aceptaciones ADD COLUMN doc_dorso_path TEXT")
+            except (sqlite3.OperationalError, Exception):
+                if is_postgres:
+                    conn.rollback()
+                pass
             
         # Migración: audio_path en aceptaciones
-        try:
-            cur.execute("ALTER TABLE aceptaciones ADD COLUMN audio_path TEXT")
-        except sqlite3.OperationalError:
-            pass
+        if "audio_path" not in columns_aceptaciones:
+            try:
+                if is_postgres:
+                    cur.execute("ALTER TABLE aceptaciones ADD COLUMN IF NOT EXISTS audio_path TEXT")
+                else:
+                    cur.execute("ALTER TABLE aceptaciones ADD COLUMN audio_path TEXT")
+            except (sqlite3.OperationalError, Exception):
+                if is_postgres:
+                    conn.rollback()
+                pass
 
-        try:
-            cur.execute("ALTER TABLE aceptaciones ADD COLUMN salud_doc_path TEXT")
-        except sqlite3.OperationalError:
-            pass
+        if "salud_doc_path" not in columns_aceptaciones:
+            try:
+                if is_postgres:
+                    cur.execute("ALTER TABLE aceptaciones ADD COLUMN IF NOT EXISTS salud_doc_path TEXT")
+                else:
+                    cur.execute("ALTER TABLE aceptaciones ADD COLUMN salud_doc_path TEXT")
+            except (sqlite3.OperationalError, Exception):
+                if is_postgres:
+                    conn.rollback()
+                pass
 
-        try:
-            cur.execute("ALTER TABLE aceptaciones ADD COLUMN salud_doc_tipo TEXT")
-        except sqlite3.OperationalError:
-            pass
+        if "salud_doc_tipo" not in columns_aceptaciones:
+            try:
+                if is_postgres:
+                    cur.execute("ALTER TABLE aceptaciones ADD COLUMN IF NOT EXISTS salud_doc_tipo TEXT")
+                else:
+                    cur.execute("ALTER TABLE aceptaciones ADD COLUMN salud_doc_tipo TEXT")
+            except (sqlite3.OperationalError, Exception):
+                if is_postgres:
+                    conn.rollback()
+                pass
 
-        try:
-            cur.execute("ALTER TABLE aceptaciones ADD COLUMN audio_exento INTEGER DEFAULT 0 CHECK (audio_exento IN (0,1))")
-        except sqlite3.OperationalError:
-            pass
+        if "audio_exento" not in columns_aceptaciones:
+            try:
+                if is_postgres:
+                    cur.execute("ALTER TABLE aceptaciones ADD COLUMN IF NOT EXISTS audio_exento INTEGER DEFAULT 0 CHECK (audio_exento IN (0,1))")
+                else:
+                    cur.execute("ALTER TABLE aceptaciones ADD COLUMN audio_exento INTEGER DEFAULT 0 CHECK (audio_exento IN (0,1))")
+            except (sqlite3.OperationalError, Exception):
+                if is_postgres:
+                    conn.rollback()
+                pass
 
-        try:
-            cur.execute("ALTER TABLE aceptaciones ADD COLUMN firma_asistida INTEGER DEFAULT 0 CHECK (firma_asistida IN (0,1))")
-        except sqlite3.OperationalError:
-            pass
+        if "firma_asistida" not in columns_aceptaciones:
+            try:
+                if is_postgres:
+                    cur.execute("ALTER TABLE aceptaciones ADD COLUMN IF NOT EXISTS firma_asistida INTEGER DEFAULT 0 CHECK (firma_asistida IN (0,1))")
+                else:
+                    cur.execute("ALTER TABLE aceptaciones ADD COLUMN firma_asistida INTEGER DEFAULT 0 CHECK (firma_asistida IN (0,1))")
+            except (sqlite3.OperationalError, Exception):
+                if is_postgres:
+                    conn.rollback()
+                pass
 
         # Migración: pdf_token en aceptaciones
-        try:
-            cur.execute("ALTER TABLE aceptaciones ADD COLUMN pdf_token TEXT")
-        except sqlite3.OperationalError:
-            pass
+        if "pdf_token" not in columns_aceptaciones:
+            try:
+                if is_postgres:
+                    cur.execute("ALTER TABLE aceptaciones ADD COLUMN IF NOT EXISTS pdf_token TEXT")
+                else:
+                    cur.execute("ALTER TABLE aceptaciones ADD COLUMN pdf_token TEXT")
+            except (sqlite3.OperationalError, Exception):
+                if is_postgres:
+                    conn.rollback()
+                pass
             
         # Migración: Stage A.2 - Control de tokens PDF
-        try:
-            cur.execute("ALTER TABLE aceptaciones ADD COLUMN pdf_token_expires_at TEXT") # ISO UTC
-        except sqlite3.OperationalError:
-            pass
+        columns_aceptaciones = get_table_columns(conn, "aceptaciones")
+        if "pdf_token_expires_at" not in columns_aceptaciones:
+             try:
+                 if is_postgres:
+                     cur.execute("ALTER TABLE aceptaciones ADD COLUMN IF NOT EXISTS pdf_token_expires_at TEXT")
+                 else:
+                     cur.execute("ALTER TABLE aceptaciones ADD COLUMN pdf_token_expires_at TEXT") # ISO UTC
+             except (sqlite3.OperationalError, Exception):
+                 if is_postgres:
+                    conn.rollback()
+                 pass
         
-        try:
-            cur.execute("ALTER TABLE aceptaciones ADD COLUMN pdf_token_revoked INTEGER DEFAULT 0 CHECK (pdf_token_revoked IN (0,1))")
-        except sqlite3.OperationalError:
-            pass
+        if "pdf_token_revoked" not in columns_aceptaciones:
+            try:
+                if is_postgres:
+                    cur.execute("ALTER TABLE aceptaciones ADD COLUMN IF NOT EXISTS pdf_token_revoked INTEGER DEFAULT 0 CHECK (pdf_token_revoked IN (0,1))")
+                else:
+                    cur.execute("ALTER TABLE aceptaciones ADD COLUMN pdf_token_revoked INTEGER DEFAULT 0 CHECK (pdf_token_revoked IN (0,1))")
+            except (sqlite3.OperationalError, Exception):
+                if is_postgres:
+                    conn.rollback()
+                pass
 
-        try:
-            cur.execute("ALTER TABLE aceptaciones ADD COLUMN pdf_last_access_at TEXT") # ISO UTC
-        except sqlite3.OperationalError:
-            pass
+        if "pdf_last_access_at" not in columns_aceptaciones:
+            try:
+                if is_postgres:
+                    cur.execute("ALTER TABLE aceptaciones ADD COLUMN IF NOT EXISTS pdf_last_access_at TEXT")
+                else:
+                    cur.execute("ALTER TABLE aceptaciones ADD COLUMN pdf_last_access_at TEXT") # ISO UTC
+            except (sqlite3.OperationalError, Exception):
+                if is_postgres:
+                    conn.rollback()
+                pass
             
-        try:
-            cur.execute("ALTER TABLE aceptaciones ADD COLUMN pdf_access_count INTEGER DEFAULT 0")
-        except sqlite3.OperationalError:
-            pass
+        if "pdf_access_count" not in columns_aceptaciones:
+            try:
+                if is_postgres:
+                    cur.execute("ALTER TABLE aceptaciones ADD COLUMN IF NOT EXISTS pdf_access_count INTEGER DEFAULT 0")
+                else:
+                    cur.execute("ALTER TABLE aceptaciones ADD COLUMN pdf_access_count INTEGER DEFAULT 0")
+            except (sqlite3.OperationalError, Exception):
+                if is_postgres:
+                    conn.rollback()
+                pass
             
         # Tabla de deslindes versionados
         cur.execute(
-            """
+            f"""
             CREATE TABLE IF NOT EXISTS deslindes (
-                id INTEGER PRIMARY KEY,
+                id {pk_type},
                 evento_id INTEGER NOT NULL,
                 texto TEXT NOT NULL,
                 hash_sha256 TEXT NOT NULL,
@@ -2113,17 +2255,32 @@ def init_db() -> None:
             )
             """
         )
+        if is_postgres:
+            conn.commit()
         
         # Migración manual simple: intentar agregar columnas si no existen
-        try:
-            cur.execute("ALTER TABLE deslindes ADD COLUMN fecha_creacion TEXT")
-        except sqlite3.OperationalError:
-            pass # Ya existe
+        columns_deslindes = get_table_columns(conn, "deslindes")
+        if "fecha_creacion" not in columns_deslindes:
+            try:
+                if is_postgres:
+                    cur.execute("ALTER TABLE deslindes ADD COLUMN IF NOT EXISTS fecha_creacion TEXT")
+                else:
+                    cur.execute("ALTER TABLE deslindes ADD COLUMN fecha_creacion TEXT")
+            except (sqlite3.OperationalError, Exception):
+                if is_postgres:
+                    conn.rollback()
+                pass # Ya existe
             
-        try:
-            cur.execute("ALTER TABLE deslindes ADD COLUMN creado_por TEXT")
-        except sqlite3.OperationalError:
-            pass # Ya existe
+        if "creado_por" not in columns_deslindes:
+            try:
+                if is_postgres:
+                    cur.execute("ALTER TABLE deslindes ADD COLUMN IF NOT EXISTS creado_por TEXT")
+                else:
+                    cur.execute("ALTER TABLE deslindes ADD COLUMN creado_por TEXT")
+            except (sqlite3.OperationalError, Exception):
+                if is_postgres:
+                    conn.rollback()
+                pass # Ya existe
 
         # Índice único parcial: un solo deslinde activo por evento
         cur.execute(
@@ -2132,35 +2289,62 @@ def init_db() -> None:
             ON deslindes(evento_id) WHERE activo = 1
             """
         )
+        if is_postgres:
+            conn.commit()
 
         # Migración: documento_norm para búsqueda optimizada
+        columns_aceptaciones = get_table_columns(conn, "aceptaciones") # Refrescar columnas por si acaso
+        if "documento_norm" not in columns_aceptaciones:
+            try:
+                if is_postgres:
+                    cur.execute("ALTER TABLE aceptaciones ADD COLUMN IF NOT EXISTS documento_norm TEXT")
+                else:
+                    cur.execute("ALTER TABLE aceptaciones ADD COLUMN documento_norm TEXT")
+                # Si se creó la columna, ejecutamos backfill inmediato
+                app_logger.info("Columna documento_norm creada. Iniciando backfill...")
+                cur.execute("SELECT id, documento FROM aceptaciones WHERE documento IS NOT NULL")
+                rows = cur.fetchall()
+                count = 0
+                for r in rows:
+                    norm = normalizar_documento_helper(r['documento'])
+                    cur.execute(
+                        f"UPDATE aceptaciones SET documento_norm = {sql_param(conn)} WHERE id = {sql_param(conn)}",
+                        (norm, r['id'])
+                    )
+                app_logger.info(f"Backfill de documento_norm completado: {count} registros actualizados.")
+            except (sqlite3.OperationalError, Exception):
+                if is_postgres:
+                    conn.rollback()
+                pass
+
+        # Backfill perezoso si ya existe pero hay nulos
         try:
-            cur.execute("ALTER TABLE aceptaciones ADD COLUMN documento_norm TEXT")
-            # Si se creó la columna, ejecutamos backfill inmediato
-            app_logger.info("Columna documento_norm creada. Iniciando backfill...")
-            cur.execute("SELECT id, documento FROM aceptaciones WHERE documento IS NOT NULL")
-            rows = cur.fetchall()
-            count = 0
-            for r in rows:
-                norm = normalizar_documento_helper(r['documento'])
-                cur.execute("UPDATE aceptaciones SET documento_norm = ? WHERE id = ?", (norm, r['id']))
-            app_logger.info(f"Backfill de documento_norm completado: {count} registros actualizados.")
-        except sqlite3.OperationalError:
-            # Si ya existe, verificamos si hay nulos para corregir (backfill perezoso)
             cur.execute("SELECT COUNT(*) FROM aceptaciones WHERE documento_norm IS NULL AND documento IS NOT NULL")
-            if cur.fetchone()[0] > 0:
+            res_count = cur.fetchone()
+            count_null = res_count[0] if res_count else 0
+            if count_null > 0:
                 app_logger.info("Detectados registros sin documento_norm. Ejecutando backfill...")
                 cur.execute("SELECT id, documento FROM aceptaciones WHERE documento_norm IS NULL AND documento IS NOT NULL")
                 rows = cur.fetchall()
                 for r in rows:
                     norm = normalizar_documento_helper(r['documento'])
-                    cur.execute("UPDATE aceptaciones SET documento_norm = ? WHERE id = ?", (norm, r['id']))
+                    cur.execute(
+                        f"UPDATE aceptaciones SET documento_norm = {sql_param(conn)} WHERE id = {sql_param(conn)}",
+                        (norm, r['id'])
+                    )
+        except Exception:
+             if is_postgres:
+                conn.rollback()
+             pass
+
         
         # Migración: indices para performance
         try:
             cur.execute("CREATE INDEX IF NOT EXISTS idx_aceptaciones_evento ON aceptaciones(evento_id)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_aceptaciones_doc_norm ON aceptaciones(documento_norm)")
-        except sqlite3.OperationalError:
+        except (sqlite3.OperationalError, Exception):
+            if is_postgres:
+                conn.rollback()
             pass
 
         conn.commit()
@@ -2173,7 +2357,7 @@ def get_evento(evento_id: int) -> Optional[Dict[str, Any]]:
     conn = get_connection()
     try:
         cur = conn.cursor()
-        cur.execute("SELECT * FROM eventos WHERE id = ?", (evento_id,))
+        cur.execute(f"SELECT * FROM eventos WHERE id = {sql_param(conn)}", (evento_id,))
         row = cur.fetchone()
         return dict(row) if row else None
     finally:
@@ -2209,10 +2393,10 @@ def crear_evento(
     try:
         cur = conn.cursor()
         cur.execute(
-            """
+            f"""
             INSERT INTO eventos (
                 nombre, fecha, organizador, activo, req_firma, req_documento, req_salud, req_audio, deslinde_version, friendly_intro
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES ({sql_placeholders(10, conn)})
             """,
             (nombre, fecha, organizador, activo, req_firma, req_documento, req_salud, req_audio, deslinde_version, friendly_intro)
         )
@@ -2241,11 +2425,12 @@ def actualizar_evento(
     conn = get_connection()
     try:
         cur = conn.cursor()
+        p = sql_param(conn)
         cur.execute(
-            """
+            f"""
             UPDATE eventos 
-            SET nombre=?, fecha=?, organizador=?, activo=?, req_firma=?, req_documento=?, req_salud=?, req_audio=?, deslinde_version=?, friendly_intro=?
-            WHERE id=?
+            SET nombre={p}, fecha={p}, organizador={p}, activo={p}, req_firma={p}, req_documento={p}, req_salud={p}, req_audio={p}, deslinde_version={p}, friendly_intro={p}
+            WHERE id={p}
             """,
             (nombre, fecha, organizador, activo, req_firma, req_documento, req_salud, req_audio, deslinde_version, friendly_intro, evento_id)
         )
@@ -2264,9 +2449,9 @@ def eliminar_evento_completo(evento_id: int) -> bool:
     try:
         cur = conn.cursor()
         # Primero aceptaciones (redundante si ya se borraron, pero seguro)
-        cur.execute("DELETE FROM aceptaciones WHERE evento_id = ?", (evento_id,))
+        cur.execute(f"DELETE FROM aceptaciones WHERE evento_id = {sql_param(conn)}", (evento_id,))
         # Luego el evento
-        cur.execute("DELETE FROM eventos WHERE id = ?", (evento_id,))
+        cur.execute(f"DELETE FROM eventos WHERE id = {sql_param(conn)}", (evento_id,))
         conn.commit()
         return True
     finally:
@@ -2279,10 +2464,10 @@ def get_deslinde_activo(evento_id: int) -> Optional[Dict[str, Any]]:
     try:
         cur = conn.cursor()
         cur.execute(
-            """
+            f"""
             SELECT id, evento_id, texto, hash_sha256, activo
             FROM deslindes
-            WHERE evento_id = ? AND activo = 1
+            WHERE evento_id = {sql_param(conn)} AND activo = 1
             LIMIT 1
             """,
             (evento_id,),
@@ -2306,9 +2491,9 @@ def insertar_deslinde(
         hashv = aceptaciones_service.calcular_hash_sha256(texto)
         fecha_creacion = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
         cur.execute(
-            """
+            f"""
             INSERT INTO deslindes (evento_id, texto, hash_sha256, activo, fecha_creacion, creado_por)
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES ({sql_placeholders(6, conn)})
             """,
             (evento_id, texto, hashv, activo, fecha_creacion, creado_por),
         )
@@ -2368,9 +2553,9 @@ def on_startup() -> None:
         if count == 0:
             # Insertar sin forzar ID para evitar colisiones en seeds repetidos
             cur.execute(
-                """
+                f"""
                 INSERT INTO eventos (nombre, fecha, organizador, activo, deslinde_version)
-                VALUES (?, ?, ?, ?, ?)
+                VALUES ({sql_placeholders(5, conn)})
                 """,
                 ("Carrera 10K Montevideo", date.today().isoformat(), "Encarrera", 1, "v1_1"),
             )
@@ -3489,26 +3674,27 @@ def admin_monitor_evento(
     conn = get_connection()
     try:
         cur = conn.cursor()
+        p = sql_param(conn)
 
         # Contador total de deslindes del evento actual (sin filtrar por búsqueda)
         cur.execute(
-            "SELECT COUNT(*) AS c FROM aceptaciones WHERE evento_id = ?",
+            f"SELECT COUNT(*) AS c FROM aceptaciones WHERE evento_id = {p}",
             (evento_id,),
         )
         row = cur.fetchone()
         total_deslindes = row["c"] if row else 0
 
         # Construir condiciones compartidas para conteo filtrado y listado paginado
-        where_clauses = ["a.evento_id = ?"]
+        where_clauses = [f"a.evento_id = {p}"]
         params_base: List[Any] = [evento_id]
 
         if q:
             q_norm = "".join(filter(str.isdigit, q))
-            clauses = ["a.nombre_participante LIKE ?"]
+            clauses = [f"a.nombre_participante LIKE {p}"]
             params_q: List[Any] = [f"%{q}%"]
 
             if len(q_norm) >= 3:
-                clauses.append("a.documento_norm LIKE ?")
+                clauses.append(f"a.documento_norm LIKE {p}")
                 params_q.append(f"%{q_norm}%")
 
             where_clauses.append(f"({' OR '.join(clauses)})")
@@ -3553,7 +3739,7 @@ def admin_monitor_evento(
             JOIN eventos e ON e.id = a.evento_id
             WHERE {where_sql}
             ORDER BY a.fecha_hora DESC
-            LIMIT ? OFFSET ?
+            LIMIT {p} OFFSET {p}
         """
         params_list = list(params_base)
         params_list.extend([page_size, offset])

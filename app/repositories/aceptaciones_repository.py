@@ -1,6 +1,5 @@
-import sqlite3
 from typing import List, Dict, Any, Optional
-from app.db.database import get_connection
+from app.db.database import get_connection, get_table_columns, sql_param, sql_placeholders
 
 def crear_aceptacion(
     evento_id: int,
@@ -27,10 +26,10 @@ def crear_aceptacion(
     try:
         cur = conn.cursor()
         cur.execute(
-            """
+            f"""
             INSERT INTO aceptaciones (
                 evento_id, nombre_participante, documento, fecha_hora, ip, user_agent, deslinde_hash_sha256, firma_path, doc_frente_path, doc_dorso_path, audio_path, salud_doc_path, salud_doc_tipo, audio_exento, firma_asistida, pdf_token, documento_norm, deslinde_version
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES ({sql_placeholders(18, conn)})
             """,
             (evento_id, nombre_participante, documento, fecha_hora, ip, user_agent, deslinde_hash_sha256, firma_path, doc_frente_path, doc_dorso_path, audio_path, salud_doc_path, salud_doc_tipo, audio_exento, firma_asistida, pdf_token, documento_norm, deslinde_version),
         )
@@ -45,10 +44,10 @@ def get_deslinde_activo(evento_id: int) -> Optional[Dict[str, Any]]:
     try:
         cur = conn.cursor()
         cur.execute(
-            """
+            f"""
             SELECT id, evento_id, texto, hash_sha256, activo
             FROM deslindes
-            WHERE evento_id = ? AND activo = 1
+            WHERE evento_id = {sql_param(conn)} AND activo = 1
             LIMIT 1
             """,
             (evento_id,),
@@ -71,9 +70,9 @@ def insertar_deslinde(
     try:
         cur = conn.cursor()
         cur.execute(
-            """
+            f"""
             INSERT INTO deslindes (evento_id, texto, hash_sha256, activo, fecha_creacion, creado_por)
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES ({sql_placeholders(6, conn)})
             """,
             (evento_id, texto, hash_sha256, activo, fecha_creacion, creado_por),
         )
@@ -93,22 +92,22 @@ def existe_aceptacion(evento_id: int, documento_norm: str) -> bool:
     conn = get_connection()
     try:
         cur = conn.cursor()
+        p = sql_param(conn)
         
         # Detectar si existe columna 'valido'
-        cur.execute("PRAGMA table_info(aceptaciones)")
-        columns = [info[1] for info in cur.fetchall()]
+        columns = get_table_columns(conn, "aceptaciones")
         has_valido = "valido" in columns
         
         if has_valido:
             # Si existe, filtrar por valido=1
             cur.execute(
-                "SELECT 1 FROM aceptaciones WHERE evento_id = ? AND documento_norm = ? AND valido = 1 LIMIT 1",
+                f"SELECT 1 FROM aceptaciones WHERE evento_id = {p} AND documento_norm = {p} AND valido = 1 LIMIT 1",
                 (evento_id, documento_norm)
             )
         else:
             # Si NO existe, usar query legacy (compatible)
             cur.execute(
-                "SELECT 1 FROM aceptaciones WHERE evento_id = ? AND documento_norm = ? LIMIT 1",
+                f"SELECT 1 FROM aceptaciones WHERE evento_id = {p} AND documento_norm = {p} LIMIT 1",
                 (evento_id, documento_norm)
             )
             
@@ -125,6 +124,7 @@ def listar_aceptaciones(evento_id: Optional[int] = None, query: Optional[str] = 
     conn = get_connection()
     try:
         cur = conn.cursor()
+        p = sql_param(conn)
         sql = """
             SELECT
                 a.id,
@@ -153,7 +153,7 @@ def listar_aceptaciones(evento_id: Optional[int] = None, query: Optional[str] = 
         conditions = []
         
         if evento_id is not None:
-            conditions.append("a.evento_id = ?")
+            conditions.append(f"a.evento_id = {p}")
             params.append(evento_id)
             
         if query:
@@ -162,13 +162,13 @@ def listar_aceptaciones(evento_id: Optional[int] = None, query: Optional[str] = 
             q_norm = "".join(filter(str.isdigit, query))
             
             # Siempre buscamos por nombre
-            clauses = ["a.nombre_participante LIKE ?"]
+            clauses = [f"a.nombre_participante LIKE {p}"]
             params_list = [f"%{query}%"]
             
             # Si hay suficientes dígitos, buscamos también por documento normalizado
             # (tolerancia a formato y búsqueda parcial)
             if len(q_norm) >= 3:
-                clauses.append("a.documento_norm LIKE ?")
+                clauses.append(f"a.documento_norm LIKE {p}")
                 params_list.append(f"%{q_norm}%")
             
             conditions.append(f"({' OR '.join(clauses)})")
@@ -193,7 +193,7 @@ def eliminar_aceptaciones_por_ids(ids: List[int]) -> int:
     try:
         cur = conn.cursor()
         # SQLite no soporta arrays nativos, usamos placeholders dinámicos
-        placeholders = ','.join('?' * len(ids))
+        placeholders = sql_placeholders(len(ids), conn)
         sql = f"DELETE FROM aceptaciones WHERE id IN ({placeholders})"
         cur.execute(sql, ids)
         conn.commit()
@@ -207,7 +207,7 @@ def buscar_aceptacion_por_id(aceptacion_id: int) -> Optional[Dict[str, Any]]:
     try:
         cur = conn.cursor()
         cur.execute(
-            """
+            f"""
             SELECT
                 a.id,
                 a.evento_id,
@@ -235,7 +235,7 @@ def buscar_aceptacion_por_id(aceptacion_id: int) -> Optional[Dict[str, Any]]:
                 a.pdf_access_count
             FROM aceptaciones a
             JOIN eventos e ON e.id = a.evento_id
-            WHERE a.id = ?
+            WHERE a.id = {sql_param(conn)}
             """,
             (aceptacion_id,)
         )
@@ -252,7 +252,7 @@ def buscar_aceptacion_por_token(pdf_token: str) -> Optional[Dict[str, Any]]:
     try:
         cur = conn.cursor()
         cur.execute(
-            """
+            f"""
             SELECT
                 a.id,
                 a.evento_id,
@@ -280,7 +280,7 @@ def buscar_aceptacion_por_token(pdf_token: str) -> Optional[Dict[str, Any]]:
                 a.pdf_access_count
             FROM aceptaciones a
             JOIN eventos e ON e.id = a.evento_id
-            WHERE a.pdf_token = ?
+            WHERE a.pdf_token = {sql_param(conn)}
             """,
             (pdf_token,)
         )
@@ -297,7 +297,7 @@ def revocar_pdf_token(aceptacion_id: int) -> bool:
     try:
         cur = conn.cursor()
         cur.execute(
-            "UPDATE aceptaciones SET pdf_token_revoked = 1 WHERE id = ?",
+            f"UPDATE aceptaciones SET pdf_token_revoked = 1 WHERE id = {sql_param(conn)}",
             (aceptacion_id,)
         )
         conn.commit()
@@ -310,12 +310,13 @@ def registrar_acceso_pdf(aceptacion_id: int, timestamp_utc: str):
     conn = get_connection()
     try:
         cur = conn.cursor()
+        p = sql_param(conn)
         cur.execute(
-            """
+            f"""
             UPDATE aceptaciones 
-            SET pdf_last_access_at = ?, 
+            SET pdf_last_access_at = {p}, 
             pdf_access_count = COALESCE(pdf_access_count, 0) + 1 
-            WHERE id = ?
+            WHERE id = {p}
             """,
             (timestamp_utc, aceptacion_id)
         )
