@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Admin - Aceptaciones</title>
+    <style>
+        body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 24px; }
+        table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+        th, td { border: 1px solid #ddd; padding: 8px; }
+        th { background: #f2f2f2; text-align: left; }
+        .muted { color: #666; font-size: 0.95em; }
+        .toolbar { 
+            background: #f8f9fa; 
+            padding: 16px; 
+            border-radius: 8px; 
+            margin-bottom: 20px; 
+            display: flex; 
+            gap: 16px; 
+            align-items: center; 
+            flex-wrap: wrap;
+        }
+        .btn { padding: 8px 16px; border-radius: 4px; text-decoration: none; border: 1px solid transparent; cursor: pointer; }
+        .btn-primary { background: #0d6efd; color: white; border-color: #0d6efd; }
+        .btn-success { background: #198754; color: white; border-color: #198754; }
+        .btn-danger { background: #dc3545; color: white; border-color: #dc3545; }
+        .btn-outline { background: white; color: #6c757d; border-color: #6c757d; }
+        select { padding: 8px; border-radius: 4px; border: 1px solid #ced4da; min-width: 200px; }
+    </style>
+</head>
+<body>
+    <!-- ADMIN PATCH: brand header -->
+    <div style="background: #fff; padding: 1rem 1.5rem; border-bottom: 1px solid #ddd; display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; margin-left: -24px; margin-right: -24px; margin-top: -24px;">
+        <div>
+            <h1 style="margin: 0; font-size: 1.25rem; color: #1a1a1a;">EncarreraOK <span style="font-weight:normal; font-size:1rem; color:#666;">Admin</span></h1>
+            <!-- BRAND PATCH: add logo -->
+            <img src="/assets/logo-encarreraok.png" alt="EncarreraOK" style="max-width:180px; width:100%; height:auto; margin-bottom:12px;">
+            <div style="font-size: 0.8rem; color: #666; text-transform: uppercase; letter-spacing: 1px;">Evidencia clara. Eventos seguros.</div>
+        </div>
+        <div style="font-size: 0.9rem; color: #666;">Usuario: <strong>{{ username }}</strong></div>
+    </div>
+    <!-- /ADMIN PATCH -->
+    <h1>Aceptaciones</h1>
+
+    <div class="toolbar">
+        <!-- ADMIN PATCH: admin home link -->
+        <a href="/admin/home" class="btn btn-outline">🏠 Admin Home</a>
+        <!-- /ADMIN PATCH -->
+        <a href="/admin/eventos" class="btn btn-outline">📅 Gestionar Eventos</a>
+
+        <form action="/admin/aceptaciones" method="get" style="display: flex; gap: 10px; align-items: center;">
+            <label for="evento_id">Filtrar por evento:</label>
+            <select name="evento_id" id="evento_id" onchange="this.form.submit()">
+                <option value="">-- Ver todos --</option>
+                {% for e in eventos %}
+                    <option value="{{ e.id }}" {% if filtro_evento_id|string == e.id|string %}selected{% endif %}>
+                        {{ e.nombre }} ({{ e.fecha }})
+                    </option>
+                {% endfor %}
+            </select>
+            <!-- <button type="submit" class="btn btn-primary">Filtrar</button> -->
+        </form>
+
+        {% if filtro_evento_id %}
+            <a href="/admin/exportar_zip/{{ filtro_evento_id }}" class="btn btn-success">
+                📦 Descargar ZIP del Evento
+            </a>
+            <a href="/admin/gestion_eliminacion/{{ filtro_evento_id }}" class="btn btn-danger">
+                🗑️ Gestionar Eliminación
+            </a>
+            <a href="/admin/aceptaciones" class="btn btn-outline">Limpiar filtro</a>
+        {% endif %}
+    </div>
+
+    <p class="muted">Mostrando {{ aceptaciones|length }} registros.</p>
+
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Evento</th>
+                <th>Fecha evento</th>
+                <th>Organizador</th>
+                <th>Nombre participante</th>
+                <th>Documento</th>
+                <th>Fecha/Hora</th>
+                <th>IP</th>
+                <th>User Agent</th>
+                <th>Tipo Salud</th>
+                <th>Audio Exento</th>
+                <th>Firma Asistida</th>
+                <th>Firma Path</th>
+                <th>Doc Frente Path</th>
+                <th>Doc Dorso Path</th>
+                <th>Audio Path</th>
+                <th>Salud Doc Path</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for a in aceptaciones %}
+            <tr>
+                <td><a href="/admin/aceptaciones/{{ a.id }}">{{ a.id }}</a></td>
+                <td>{{ a.evento_nombre }}</td>
+                <td>{{ a.evento_fecha|fecha_ddmmaaaa }}</td>
+                <td>{{ a.evento_organizador }}</td>
+                <td>{{ a.nombre_participante }}</td>
+                <td>{{ a.documento }}</td>
+                <td>{{ a.fecha_hora }}</td>
+                <td>{{ a.ip }}</td>
+                <td>{{ a.user_agent }}</td>
+                <td>{{ a.salud_doc_tipo or '-' }}</td>
+                <td>{{ 'SÍ' if a.audio_exento else '-' }}</td>
+                <td>{{ 'SÍ' if a.firma_asistida else '-' }}</td>
+                <!-- ADMIN PATCH: serve local evidences -->
+                <td style="font-size: 0.85em; max-width: 200px; overflow: hidden; text-overflow: ellipsis;">
+                    {% if a.firma_path %}<a href="/admin/evidence/view/{{ a.id }}/firma" target="_blank" style="color: #0d6efd; text-decoration: underline;">Ver Firma</a>{% else %}-{% endif %}
+                </td>
+                <td style="font-size: 0.85em; max-width: 200px; overflow: hidden; text-overflow: ellipsis;">
+                    {% if a.doc_frente_path %}<a href="/admin/evidence/view/{{ a.id }}/doc_frente" target="_blank" style="color: #0d6efd; text-decoration: underline;">Ver Doc Frente</a>{% else %}-{% endif %}
+                </td>
+                <td style="font-size: 0.85em; max-width: 200px; overflow: hidden; text-overflow: ellipsis;">
+                    {% if a.doc_dorso_path %}<a href="/admin/evidence/view/{{ a.id }}/doc_dorso" target="_blank" style="color: #0d6efd; text-decoration: underline;">Ver Doc Dorso</a>{% else %}-{% endif %}
+                </td>
+                <td style="font-size: 0.85em; max-width: 200px; overflow: hidden; text-overflow: ellipsis;">
+                    {% if a.audio_path %}<a href="/admin/evidence/view/{{ a.id }}/audio" target="_blank" style="color: #0d6efd; text-decoration: underline;">Ver Audio</a>{% else %}-{% endif %}
+                </td>
+                <td style="font-size: 0.85em; max-width: 200px; overflow: hidden; text-overflow: ellipsis;">
+                    {% if a.salud_doc_path %}<a href="/admin/evidence/view/{{ a.id }}/salud_doc" target="_blank" style="color: #0d6efd; text-decoration: underline;">Ver Salud</a>{% else %}-{% endif %}
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</body>
+</html>

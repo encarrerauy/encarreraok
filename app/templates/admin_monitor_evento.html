@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Monitor - {{ evento.nombre }}</title>
+    {# Meta refresh removido para evitar borrado de input. Se maneja con JS. #}
+    <style>
+        body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 0; background: #f4f6f9; }
+        .header { background: white; padding: 16px 24px; border-bottom: 1px solid #ddd; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        .header h1 { margin: 0; font-size: 1.25rem; }
+        .header .controls { display: flex; gap: 10px; }
+        .container { padding: 24px; max-width: 1200px; margin: 0 auto; }
+        .search-box { padding: 8px 12px; border: 1px solid #ccc; border-radius: 4px; width: 250px; }
+        .card { background: white; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); overflow: hidden; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 12px 16px; text-align: left; border-bottom: 1px solid #eee; }
+        th { background: #f8f9fa; font-weight: 600; color: #555; }
+        tr:hover { background: #f1f3f5; }
+        .status-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 12px; font-size: 0.85rem; font-weight: 500; }
+        .status-ok { background: #d1e7dd; color: #0f5132; }
+        .status-incomplete { background: #fff3cd; color: #664d03; }
+        .btn { text-decoration: none; padding: 6px 12px; border-radius: 4px; font-size: 0.9rem; display: inline-block; cursor: pointer; }
+        .btn-primary { background: #0d6efd; color: white; }
+        .btn-outline { border: 1px solid #ccc; color: #555; background: white; }
+        .timestamp { color: #666; font-size: 0.9rem; }
+        .icon { font-size: 1.1em; }
+    </style>
+</head>
+<body>
+    <!-- ADMIN PATCH: brand header -->
+    <div style="background: #fff; padding: 1rem 1.5rem; border-bottom: 1px solid #ddd; display: flex; align-items: center; justify-content: space-between;">
+        <div>
+            <h1 style="margin: 0; font-size: 1.25rem; color: #1a1a1a;">EncarreraOK <span style="font-weight:normal; font-size:1rem; color:#666;">Admin</span></h1>
+            <!-- BRAND PATCH: add logo -->
+            <img src="/assets/logo-encarreraok.png" alt="EncarreraOK" style="max-width:180px; width:100%; height:auto; margin-bottom:12px;">
+            <div style="font-size: 0.8rem; color: #666; text-transform: uppercase; letter-spacing: 1px;">Evidencia clara. Eventos seguros.</div>
+        </div>
+        <div style="font-size: 0.9rem; color: #666;">Usuario: <strong>{{ username }}</strong></div>
+    </div>
+    <!-- /ADMIN PATCH -->
+    <div class="header">
+        <div style="display: flex; align-items: center; gap: 16px;">
+            <a href="/admin/eventos" class="btn btn-outline">← Volver</a>
+            <h1>Monitor: {{ evento.nombre }}</h1>
+        </div>
+        <div class="controls">
+            <form action="" method="get">
+                <input type="text" inputmode="numeric" name="q" class="search-box" placeholder="Buscar por nombre o documento..." value="{{ query or '' }}" autocomplete="off">
+            </form>
+        </div>
+    </div>
+
+    <div class="container">
+        <!-- ADMIN PATCH: pagination + counter -->
+        <div style="margin-bottom: 12px; font-size: 0.95rem; color: #333;">
+            Deslindes registrados: <strong>{{ total_deslindes }}</strong>
+        </div>
+        <div class="card">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Nombre</th>
+                        <th>Documento</th>
+                        <th>Estado</th>
+                        <th>Hora</th>
+                        <th>Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for a in aceptaciones %}
+                    {% set status_ok = true %}
+                    {% if evento.req_firma and not a.firma_path %} {% set status_ok = false %} {% endif %}
+                    {% if evento.req_documento and (not a.doc_frente_path or not a.doc_dorso_path) %} {% set status_ok = false %} {% endif %}
+                    {% if evento.req_audio and (not a.audio_path and not a.audio_exento) %} {% set status_ok = false %} {% endif %}
+                    {% if evento.req_salud and not a.salud_doc_path %} {% set status_ok = false %} {% endif %}
+
+                    <tr>
+                        <td><strong>{{ a.nombre_participante }}</strong></td>
+                        <td>{{ a.documento }}</td>
+                        <td>
+                            {% if status_ok %}
+                            <span class="status-badge status-ok"><span class="icon">🟢</span> COMPLETO</span>
+                            {% else %}
+                            <span class="status-badge status-incomplete"><span class="icon">🟡</span> INCOMPLETO</span>
+                            {% endif %}
+                        </td>
+                        <td class="timestamp">{{ a.fecha_hora|replace("T", " ")|replace("Z", "") }}</td>
+                        <td>
+                            <a href="/admin/evento/{{ evento.id }}/preview/{{ a.id }}" class="btn {{ 'btn-primary' if not status_ok else 'btn-outline' }}">
+                                {{ '🔍 Verificar' if not status_ok else '👁️ Ver' }}
+                            </a>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="5" style="text-align: center; padding: 24px; color: #666;">
+                            {% if query %}
+                            No se encontraron resultados para "{{ query }}"
+                            {% else %}
+                            Esperando registros...
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-top: 1px solid #eee;">
+                <div style="font-size: 0.9rem; color: #555;">
+                    Página {{ page }}
+                </div>
+                <div style="display: flex; gap: 8px;">
+                    {% if has_prev %}
+                    <a href="/admin/evento/{{ evento.id }}/monitor?{% if query %}q={{ query }}&{% endif %}page={{ page - 1 }}" class="btn btn-outline">Anterior</a>
+                    {% else %}
+                    <span class="btn btn-outline" style="opacity: 0.5; cursor: default; pointer-events: none;">Anterior</span>
+                    {% endif %}
+                    {% if has_next %}
+                    <a href="/admin/evento/{{ evento.id }}/monitor?{% if query %}q={{ query }}&{% endif %}page={{ page + 1 }}" class="btn btn-primary">Siguiente</a>
+                    {% else %}
+                    <span class="btn btn-outline" style="opacity: 0.5; cursor: default; pointer-events: none;">Siguiente</span>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        <!-- /ADMIN PATCH: pagination + counter -->
+    </div>
+    <script>
+        const searchBox = document.querySelector('input[name="q"]');
+        if (searchBox.value) {
+            searchBox.focus();
+            const len = searchBox.value.length;
+            searchBox.setSelectionRange(len, len);
+        } else {
+            // Auto-refresh solo si el input está vacío y no hay interacción
+            setTimeout(function() {
+                if (!searchBox.value) {
+                    window.location.reload();
+                }
+            }, 10000);
+        }
+    </script>
+</body>
+</html>

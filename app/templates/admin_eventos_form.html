@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{ 'Editar' if evento else 'Nuevo' }} Evento - Admin</title>
+    <style>
+        body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 24px; max-width: 600px; margin: 0 auto; }
+        .card { border: 1px solid #ddd; padding: 24px; border-radius: 8px; background: white; margin-top: 24px; }
+        .form-group { margin-bottom: 16px; }
+        label { display: block; margin-bottom: 8px; font-weight: bold; }
+        input[type="text"], input[type="date"], select { width: 100%; padding: 8px; box-sizing: border-box; }
+        .checkbox-group { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; }
+        .checkbox-group input { width: auto; }
+        .checkbox-group label { margin-bottom: 0; font-weight: normal; }
+        .btn { padding: 10px 20px; border-radius: 4px; text-decoration: none; border: 1px solid transparent; cursor: pointer; display: inline-block; background: #007bff; color: white; }
+        .btn-cancel { background: #6c757d; margin-right: 10px; }
+    </style>
+</head>
+<body>
+    <!-- ADMIN PATCH: brand header -->
+    <div style="background: #fff; padding: 1rem 0; border-bottom: 1px solid #ddd; display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;">
+        <div>
+            <h1 style="margin: 0; font-size: 1.25rem; color: #1a1a1a;">EncarreraOK <span style="font-weight:normal; font-size:1rem; color:#666;">Admin</span></h1>
+            <!-- BRAND PATCH: add logo -->
+            <img src="/assets/logo-encarreraok.png" alt="EncarreraOK" style="max-width:180px; width:100%; height:auto; margin-bottom:12px;">
+            <div style="font-size: 0.8rem; color: #666; text-transform: uppercase; letter-spacing: 1px;">Evidencia clara. Eventos seguros.</div>
+        </div>
+        <div style="font-size: 0.9rem; color: #666;">Usuario: <strong>{{ username }}</strong></div>
+    </div>
+    <!-- /ADMIN PATCH -->
+    <h1>{{ 'Editar' if evento else 'Crear Nuevo' }} Evento</h1>
+
+    <div class="card">
+        <form method="post">
+            <div class="form-group">
+                <label for="nombre">Nombre del Evento *</label>
+                <input type="text" id="nombre" name="nombre" value="{{ evento.nombre if evento else '' }}" required>
+            </div>
+
+            <div class="form-group">
+                <label for="fecha">Fecha (YYYY-MM-DD) *</label>
+                <input type="date" id="fecha" name="fecha" value="{{ evento.fecha if evento else '' }}" required>
+            </div>
+
+            <div class="form-group">
+                <label for="organizador">Organizador *</label>
+                <input type="text" id="organizador" name="organizador" value="{{ evento.organizador if evento else '' }}" required>
+            </div>
+
+            <div class="form-group">
+                <label>Configuración de Deslinde</label>
+                <div class="checkbox-group">
+                    <input type="checkbox" id="req_firma" name="req_firma" value="1" {{ 'checked' if (evento and evento.req_firma) else '' }}>
+                    <label for="req_firma">Requiere Firma Manuscrita</label>
+                </div>
+                <div class="checkbox-group">
+                    <input type="checkbox" id="req_documento" name="req_documento" value="1" {{ 'checked' if (evento and evento.req_documento) else '' }}>
+                    <label for="req_documento">Requiere Fotos Documento (Frente/Dorso)</label>
+                </div>
+                <div class="checkbox-group">
+                    <input type="checkbox" id="req_salud" name="req_salud" value="1" {{ 'checked' if (evento and evento.req_salud) else '' }}>
+                    <label for="req_salud">Requiere Documento de Salud</label>
+                </div>
+                <div class="checkbox-group">
+                    <input type="checkbox" id="req_audio" name="req_audio" value="1" {{ 'checked' if (evento and evento.req_audio) else '' }}>
+                    <label for="req_audio">Requiere Audio Aceptación</label>
+                </div>
+                <!-- DESLINDE PATCH: friendly intro -->
+                <div class="checkbox-group">
+                    <input type="checkbox" id="friendly_intro" name="friendly_intro" value="1" {{ 'checked' if (evento and evento.friendly_intro) else '' }}>
+                    <label for="friendly_intro">Mostrar Intro Amigable</label>
+                </div>
+                <!-- /DESLINDE PATCH -->
+            </div>
+
+            <div class="form-group">
+                <label for="deslinde_version">Versión de Deslinde *</label>
+                <select id="deslinde_version" name="deslinde_version" required>
+                    <option value="v1_1" {{ 'selected' if (evento and evento.deslinde_version == 'v1_1') else '' }}>v1_1 (Estándar)</option>
+                    <option value="v2_0" {{ 'selected' if (evento and evento.deslinde_version == 'v2_0') else '' }}>v2_0 (Actualizado)</option>
+                    <option value="v3_0" {{ 'selected' if (evento and evento.deslinde_version == 'v3_0') else '' }}>v3_0 (Legal Completo)</option>
+                </select>
+            </div>
+
+            <div class="form-group" style="margin-top: 24px; padding-top: 16px; border-top: 1px solid #eee;">
+                <div class="checkbox-group">
+                    <input type="checkbox" id="activo" name="activo" value="1" {{ 'checked' if (evento and evento.activo) else '' }}>
+                    <label for="activo" style="font-weight: bold;">Evento Activo (Visible para usuarios)</label>
+                </div>
+                <small style="color: #666; display: block; margin-top: 4px;">Si se desactiva, no se permitirán nuevas aceptaciones.</small>
+            </div>
+
+            <div style="margin-top: 24px;">
+                <a href="/admin/eventos" class="btn btn-cancel">Cancelar</a>
+                <button type="submit" class="btn">Guardar Cambios</button>
+            </div>
+        </form>
+    </div>
+</body>
+</html>
