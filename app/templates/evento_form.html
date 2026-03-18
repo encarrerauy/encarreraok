@@ -95,7 +95,7 @@
             touch-action: none;
             position: relative;
         }
-        canvas { display: block; width: 100%; height: 200px; }
+        #signature-area canvas { display: block; width: 100%; height: 100%; }
         .signature-tools { margin-top: 8px; display: flex; justify-content: space-between; align-items: center; }
 
         /* Audio Controls */
@@ -229,8 +229,6 @@
             min-height: 220px;
         }
     </style>
-    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jSignature/2.1.3/jSignature.min.js"></script>
 </head>
 <body>
     <div class="card">
@@ -603,68 +601,125 @@
                 })();
                 {% endif %}
 
-                // Lógica de Firma (jSignature)
+                // Lógica de Firma (canvas nativo)
                 {% if evento.req_firma %}
-                $(document).ready(function() {
-                    var $sigDiv = $("#signature-area");
-                    var $hiddenInput = $("#firma_base64");
-                    var $modal = $("#signature-modal");
-                    var $previewMsg = $("#signature-preview-msg");
-                    var initialized = false;
+                (function() {
+                    var modal      = document.getElementById('signature-modal');
+                    var sigArea    = document.getElementById('signature-area');
+                    var hiddenInput = document.getElementById('firma_base64');
+                    var previewMsg = document.getElementById('signature-preview-msg');
+                    var canvas, ctx;
+                    var isDrawing  = false;
+                    var hasStrokes = false;
+                    var lastX = 0, lastY = 0;
 
-                    // Open Modal
-                    $("#open-signature-modal").click(function() {
-                        $modal.css("display", "flex");
+                    function initCanvas() {
+                        // Limpiar canvas anterior si existe
+                        sigArea.innerHTML = '';
+                        canvas = document.createElement('canvas');
+                        // Usar dimensiones reales del contenedor
+                        canvas.width  = sigArea.offsetWidth  || 500;
+                        canvas.height = sigArea.offsetHeight || 220;
+                        canvas.style.display = 'block';
+                        canvas.style.width   = '100%';
+                        canvas.style.height  = '100%';
+                        canvas.style.touchAction = 'none';
+                        sigArea.appendChild(canvas);
 
-                        // FIX: Delay init to ensure modal is visible and layout is calculated
+                        ctx = canvas.getContext('2d');
+                        ctx.strokeStyle = '#000';
+                        ctx.lineWidth   = 2.5;
+                        ctx.lineCap     = 'round';
+                        ctx.lineJoin    = 'round';
+                        hasStrokes = false;
+                    }
+
+                    function getPos(e) {
+                        var rect   = canvas.getBoundingClientRect();
+                        var scaleX = canvas.width  / rect.width;
+                        var scaleY = canvas.height / rect.height;
+                        var src = e.touches ? e.touches[0] : e;
+                        return {
+                            x: (src.clientX - rect.left) * scaleX,
+                            y: (src.clientY - rect.top)  * scaleY
+                        };
+                    }
+
+                    function onStart(e) {
+                        isDrawing = true;
+                        var pos = getPos(e);
+                        lastX = pos.x; lastY = pos.y;
+                        ctx.beginPath();
+                        ctx.moveTo(lastX, lastY);
+                        e.preventDefault();
+                    }
+
+                    function onMove(e) {
+                        if (!isDrawing) return;
+                        var pos = getPos(e);
+                        ctx.lineTo(pos.x, pos.y);
+                        ctx.stroke();
+                        lastX = pos.x; lastY = pos.y;
+                        hasStrokes = true;
+                        e.preventDefault();
+                    }
+
+                    function onEnd(e) { isDrawing = false; }
+
+                    function bindCanvas() {
+                        canvas.addEventListener('mousedown',  onStart);
+                        canvas.addEventListener('mousemove',  onMove);
+                        canvas.addEventListener('mouseup',    onEnd);
+                        canvas.addEventListener('mouseleave', onEnd);
+                        canvas.addEventListener('touchstart', onStart, { passive: false });
+                        canvas.addEventListener('touchmove',  onMove,  { passive: false });
+                        canvas.addEventListener('touchend',   onEnd);
+                    }
+
+                    // Abrir modal
+                    document.getElementById('open-signature-modal').addEventListener('click', function() {
+                        modal.style.display = 'flex';
+                        // Esperar a que el modal sea visible antes de leer dimensiones
                         setTimeout(function() {
-                            if (!initialized) {
-                                $sigDiv.jSignature({'width': '100%', 'height': '100%'});
-                                initialized = true;
-                                // Force resize immediately after first init
-                                try { $sigDiv.jSignature("resize"); } catch(e){}
-                            } else {
-                                $sigDiv.jSignature("reset");
-                            }
-                        }, 50);
+                            initCanvas();
+                            bindCanvas();
+                        }, 60);
                     });
 
-                    // Clear
-                    $("#sig-clear").click(function() {
-                        $sigDiv.jSignature("reset");
+                    // Limpiar
+                    document.getElementById('sig-clear').addEventListener('click', function() {
+                        if (ctx) {
+                            ctx.clearRect(0, 0, canvas.width, canvas.height);
+                            hasStrokes = false;
+                        }
                     });
 
-                    // Cancel
-                    $("#sig-cancel").click(function() {
-                        $modal.hide();
+                    // Cancelar
+                    document.getElementById('sig-cancel').addEventListener('click', function() {
+                        modal.style.display = 'none';
                     });
 
-                    // Save (Usar firma)
-                    $("#sig-save").click(function() {
-                        if( $sigDiv.jSignature('getData', 'native').length == 0 ) {
+                    // Guardar firma
+                    document.getElementById('sig-save').addEventListener('click', function() {
+                        if (!hasStrokes) {
                             alert("Por favor firme antes de guardar.");
                             return;
                         }
-
-                        var datapair = $sigDiv.jSignature("getData", "image"); 
-                        var dataUrl = "data:" + datapair[0] + "," + datapair[1];
-
-                        $hiddenInput.val(dataUrl);
-                        $previewMsg.show();
-                        $modal.hide();
+                        var dataUrl = canvas.toDataURL('image/png');
+                        hiddenInput.value = dataUrl;
+                        previewMsg.style.display = 'block';
+                        modal.style.display = 'none';
                     });
 
-                    // Sync on submit
-                    $("#acceptForm").on('submit', function(e) {
-                        if($("#firma_asistida").is(":checked")) return; 
-
-                        if(!$hiddenInput.val()) {
+                    // Validar al enviar
+                    document.getElementById('acceptForm').addEventListener('submit', function(e) {
+                        if (document.getElementById('firma_asistida').checked) return;
+                        if (!hiddenInput.value) {
                             alert("Por favor firme el documento.");
                             e.preventDefault();
-                            return;
                         }
                     });
-                });
+                })();
                 {% endif %}
 
                 // Validación Final en Submit
