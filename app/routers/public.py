@@ -52,12 +52,42 @@ except ImportError:
     PIL_AVAILABLE = False
 
 # Directorios de almacenamiento de evidencias
+# Intenta usar el directorio junto a DB_PATH; si no es escribible, usa el
+# directorio del proyecto (worktree) como fallback para desarrollo local.
 DB_PATH = settings.db_path
-EVIDENCIAS_DIR = os.path.join(os.path.dirname(DB_PATH), "evidencias")
-FIRMAS_DIR = os.path.join(EVIDENCIAS_DIR, "firmas")
-DOCUMENTOS_DIR = os.path.join(EVIDENCIAS_DIR, "documentos")
-AUDIOS_DIR = os.path.join(EVIDENCIAS_DIR, "audios")
-SALUD_DIR = os.path.join(EVIDENCIAS_DIR, "salud")
+_evidencias_candidate = os.path.join(os.path.dirname(DB_PATH), "evidencias")
+_project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_evidencias_fallback = os.path.join(_project_root, "evidencias")
+
+def _resolve_evidencias_dir() -> str:
+    """Devuelve el primer directorio de evidencias que se puede crear/escribir."""
+    for candidate in [_evidencias_candidate, _evidencias_fallback]:
+        try:
+            os.makedirs(candidate, exist_ok=True)
+            test = os.path.join(candidate, ".write_test")
+            with open(test, "w") as f:
+                f.write("ok")
+            os.remove(test)
+            return candidate
+        except Exception:
+            continue
+    # Último recurso: directorio temporal del sistema
+    import tempfile
+    td = os.path.join(tempfile.gettempdir(), "encarreraok_evidencias")
+    os.makedirs(td, exist_ok=True)
+    return td
+
+EVIDENCIAS_DIR  = _resolve_evidencias_dir()
+FIRMAS_DIR      = os.path.join(EVIDENCIAS_DIR, "firmas")
+DOCUMENTOS_DIR  = os.path.join(EVIDENCIAS_DIR, "documentos")
+AUDIOS_DIR      = os.path.join(EVIDENCIAS_DIR, "audios")
+SALUD_DIR       = os.path.join(EVIDENCIAS_DIR, "salud")
+
+# Crear subdirectorios
+for _d in [FIRMAS_DIR, DOCUMENTOS_DIR, AUDIOS_DIR, SALUD_DIR]:
+    os.makedirs(_d, exist_ok=True)
+
+app_logger.info(f"Evidencias dir: {EVIDENCIAS_DIR}")
 
 
 def normalizar_documento_helper(doc: str) -> str:
@@ -473,7 +503,8 @@ def procesar_aceptacion(
                 app_logger.info(f"[{request_id}] Firma guardada: path={filepath}, size={firma_size} bytes")
             except HTTPException:
                 raise
-            except Exception:
+            except Exception as _firma_exc:
+                app_logger.error(f"[{request_id}] Error guardando firma en {FIRMAS_DIR}: {_firma_exc}", exc_info=True)
                 if req_firma:
                     raise HTTPException(status_code=500, detail="Error al guardar la firma")
 
