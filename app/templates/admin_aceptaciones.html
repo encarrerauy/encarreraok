@@ -62,8 +62,8 @@
         </form>
 
         {% if filtro_evento_id %}
-            <a href="/admin/exportar_zip/{{ filtro_evento_id }}" class="btn btn-success">
-                📦 Descargar ZIP del Evento
+            <a href="/admin/evento/{{ filtro_evento_id }}/exportar_csv" class="btn btn-success">
+                📋 Descargar CSV del Evento
             </a>
             <a href="/admin/gestion_eliminacion/{{ filtro_evento_id }}" class="btn btn-danger">
                 🗑️ Gestionar Eliminación

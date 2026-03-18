@@ -525,10 +525,10 @@ def admin_home(username: str = Depends(get_current_username)) -> HTMLResponse:
 
                 <!-- Exportes -->
                 <a href="/admin/eventos" class="card">
-                    <div class="card-icon">&#128230;</div>
-                    <div class="card-title">Exportes Legales</div>
-                    <div class="card-desc">Descargar paquetes ZIP con PDFs firmados, evidencias y manifiestos de auditoría.</div>
-                    <div class="card-action">Ir a Descargas</div>
+                    <div class="card-icon">&#128203;</div>
+                    <div class="card-title">Exportar CSV</div>
+                    <div class="card-desc">Descargar planilla CSV con el detalle de deslindes para cruzar con inscriptos.</div>
+                    <div class="card-action">Ir a Aceptaciones</div>
                 </a>
 
                 <!-- Monitor en Vivo -->
@@ -537,6 +537,14 @@ def admin_home(username: str = Depends(get_current_username)) -> HTMLResponse:
                     <div class="card-title">Monitor de Entrada</div>
                     <div class="card-desc">Pantalla de validación en tiempo real para operadores de acceso.</div>
                     <div class="card-action">Seleccionar Evento</div>
+                </a>
+
+                <!-- Operadores -->
+                <a href="/admin/operadores" class="card">
+                    <div class="card-icon">&#128101;</div>
+                    <div class="card-title">Operadores</div>
+                    <div class="card-desc">Gestionar usuarios con acceso restringido al monitor y CSV por evento.</div>
+                    <div class="card-action">Gestionar</div>
                 </a>
 
                 <!-- Búsqueda Global -->
@@ -753,171 +761,122 @@ def admin_descargar_pdf_aceptacion(
     return StreamingResponse(io.BytesIO(pdf_bytes), media_type="application/pdf", headers=headers)
 
 
-@router.get("/exportar_zip/{evento_id}")
-def admin_exportar_zip(
+@router.get("/evento/{evento_id}/exportar_csv")
+def admin_exportar_csv(
     evento_id: int,
     username: str = Depends(get_current_username)
 ):
     """
-    Genera y descarga un ZIP con todas las evidencias de un evento y manifest.json.
+    Genera y descarga un CSV con el detalle de todos los deslindes de un evento.
+    Útil para cruzar inscriptos vs. deslindes cargados.
     """
-    import zipfile
+    import csv
 
     evento = get_evento(evento_id)
     if not evento:
         raise HTTPException(status_code=404, detail="Evento no encontrado")
 
-    aceptaciones = listar_aceptaciones(evento_id=evento_id)
-    if not aceptaciones:
-        raise HTTPException(status_code=404, detail="No hay aceptaciones para este evento")
+    conn = _get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT
+                a.documento,
+                a.nombre_participante,
+                a.fecha_hora,
+                a.valido,
+                a.firma_path,
+                a.doc_frente_path,
+                a.doc_dorso_path,
+                a.audio_path,
+                a.audio_exento,
+                a.salud_doc_path,
+                a.firma_asistida,
+                a.motivo_anulacion,
+                a.fecha_anulacion,
+                a.anulado_por,
+                a.ip
+            FROM aceptaciones a
+            WHERE a.evento_id = %s
+            ORDER BY a.fecha_hora ASC
+            """,
+            (evento_id,)
+        )
+        rows = [dict(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
 
-    version = evento.get("deslinde_version") or DEFAULT_DESLINDE_VERSION
-    texto_base = cargar_deslinde(version)
-    texto_final_template = texto_base.replace("{{NOMBRE_EVENTO}}", evento["nombre"])\
-                                     .replace("{{ORGANIZADOR}}", evento["organizador"])
+    req_firma = bool(evento.get("req_firma"))
+    req_documento = bool(evento.get("req_documento"))
+    req_audio = bool(evento.get("req_audio"))
+    req_salud = bool(evento.get("req_salud"))
 
-    zip_buffer = io.BytesIO()
+    output = io.StringIO()
+    writer = csv.writer(output, delimiter=";", quoting=csv.QUOTE_ALL)
 
-    manifest_data = {
-        "evento": {
-            "id": evento["id"],
-            "nombre": evento["nombre"],
-            "fecha": evento["fecha"],
-            "organizador": evento["organizador"]
-        },
-        "fecha_exportacion_utc": datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
-        "aceptaciones": []
-    }
+    writer.writerow([
+        "cedula",
+        "nombre",
+        "fecha_hora_registro",
+        "estado",
+        "tiene_firma",
+        "tiene_doc_frente",
+        "tiene_doc_dorso",
+        "tiene_audio",
+        "audio_exento",
+        "tiene_salud",
+        "firma_asistida",
+        "motivo_anulacion",
+        "fecha_anulacion",
+        "anulado_por",
+        "ip",
+    ])
 
-    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
-        for a in aceptaciones:
-            clean_name = "".join([c for c in a['nombre_participante'] if c.isalnum() or c in (' ', '_', '-')]).strip()
-            folder_name = f"{a['id']}_{clean_name}"
+    for a in rows:
+        if a.get("valido") == 0:
+            estado = "ANULADO"
+        else:
+            completo = True
+            if req_firma and not a.get("firma_path"):
+                completo = False
+            if req_documento and (not a.get("doc_frente_path") or not a.get("doc_dorso_path")):
+                completo = False
+            if req_audio and not a.get("audio_path") and not a.get("audio_exento"):
+                completo = False
+            if req_salud and not a.get("salud_doc_path"):
+                completo = False
+            estado = "COMPLETO" if completo else "INCOMPLETO"
 
-            aceptacion_entry = {
-                "aceptacion_id": a["id"],
-                "nombre_participante": a["nombre_participante"],
-                "documento": a["documento"],
-                "fecha_hora": a["fecha_hora"],
-                "deslinde_hash_sha256": a["deslinde_hash_sha256"],
-                "flags": {
-                    "audio_exento": 1 if a.get("audio_exento") else 0,
-                    "firma_asistida": 1 if a.get("firma_asistida") else 0
-                },
-                "evidencias": {}
-            }
+        writer.writerow([
+            a.get("documento", ""),
+            a.get("nombre_participante", ""),
+            (a.get("fecha_hora") or "").replace("T", " ").replace("Z", ""),
+            estado,
+            "SI" if a.get("firma_path") else "NO",
+            "SI" if a.get("doc_frente_path") else "NO",
+            "SI" if a.get("doc_dorso_path") else "NO",
+            "SI" if a.get("audio_path") else "NO",
+            "SI" if a.get("audio_exento") else "NO",
+            "SI" if a.get("salud_doc_path") else "NO",
+            "SI" if a.get("firma_asistida") else "NO",
+            a.get("motivo_anulacion") or "",
+            (a.get("fecha_anulacion") or "").replace("T", " ").replace("Z", ""),
+            a.get("anulado_por") or "",
+            a.get("ip") or "",
+        ])
 
-            def agregar_archivo(path_bd, nombre_salida):
-                if path_bd and os.path.exists(path_bd):
-                    try:
-                        arcname = f"{folder_name}/{nombre_salida}"
-                        zip_file.write(path_bd, arcname)
-                        sha256 = calcular_hash_archivo(path_bd)
-                        return sha256, arcname
-                    except Exception as e:
-                        app_logger.error(f"Error agregando archivo {path_bd} al ZIP: {e}")
-                return None, None
+    csv_bytes = output.getvalue().encode("utf-8-sig")  # BOM para Excel
 
-            try:
-                pdf_bytes = _generar_bytes_pdf(a, evento)
+    safe_name = "".join([c for c in evento["nombre"] if c.isalnum() or c in (' ', '_', '-')]).strip().replace(" ", "_")
+    filename = f"deslindes_{safe_name}_{evento['fecha']}.csv"
 
-                pdf_arcname = f"{folder_name}/aceptacion.pdf"
-                zip_file.writestr(pdf_arcname, pdf_bytes)
-
-                pdf_hash = hashlib.sha256(pdf_bytes).hexdigest()
-
-                aceptacion_entry["evidencias"]["pdf"] = {
-                    "path": pdf_arcname,
-                    "sha256": pdf_hash
-                }
-
-            except Exception as e:
-                app_logger.error(f"Error crítico generando PDF para aceptación {a['id']}: {e}")
-                raise HTTPException(status_code=500, detail=f"Error generando PDF legal para aceptación {a['id']}. Exportación abortada.")
-
-            h, p = agregar_archivo(a.get('firma_path'), "firma.png")
-            if h: aceptacion_entry["evidencias"]["firma"] = {"path": p, "sha256": h}
-
-            if a.get('doc_frente_path'):
-                ext = os.path.splitext(a['doc_frente_path'])[1] or ".jpg"
-                h, p = agregar_archivo(a['doc_frente_path'], f"doc_frente{ext}")
-                if h: aceptacion_entry["evidencias"]["doc_frente"] = {"path": p, "sha256": h}
-
-            if a.get('doc_dorso_path'):
-                ext = os.path.splitext(a['doc_dorso_path'])[1] or ".jpg"
-                h, p = agregar_archivo(a['doc_dorso_path'], f"doc_dorso{ext}")
-                if h: aceptacion_entry["evidencias"]["doc_dorso"] = {"path": p, "sha256": h}
-
-            if a.get('salud_doc_path'):
-                ext = os.path.splitext(a['salud_doc_path'])[1] or ".jpg"
-                h, p = agregar_archivo(a['salud_doc_path'], f"salud_doc{ext}")
-                if h:
-                    aceptacion_entry["evidencias"]["salud_doc"] = {
-                        "tipo": a.get("salud_doc_tipo", "desconocido"),
-                        "path": p,
-                        "sha256": h
-                    }
-
-            if a.get('audio_path'):
-                ext = os.path.splitext(a['audio_path'])[1] or ".webm"
-                h, p = agregar_archivo(a['audio_path'], f"audio{ext}")
-                if h: aceptacion_entry["evidencias"]["audio"] = {"path": p, "sha256": h}
-
-            manifest_data["aceptaciones"].append(aceptacion_entry)
-
-        manifest_str = json.dumps(manifest_data, indent=2, ensure_ascii=False)
-        zip_file.writestr("manifest.json", manifest_str)
-
-        readme_content = f"""ENCARRERAOK – EXPORTACIÓN LEGAL DEL EVENTO
-
-Este archivo ZIP contiene las aceptaciones legales del evento:
-- Nombre del evento: {evento['nombre']}
-- Fecha del evento: {evento['fecha']}
-- Organizador: {evento['organizador']}
-
-Estructura del ZIP:
-
-/manifest.json
-/README.txt
-/<aceptacion_id>_<nombre>/
-  aceptacion.pdf
-  firma.(ext)
-  documento_identidad_frente.(ext)
-  documento_identidad_dorso.(ext)
-  documento_salud.(ext)
-  audio.(ext)
-
-Descripción de archivos:
-
-- aceptacion.pdf:
-  Documento legal probatorio generado por el sistema EncarreraOK.
-  Contiene el texto completo del deslinde aceptado, datos del participante,
-  auditoría técnica (hash, IP, fecha, flags de accesibilidad).
-
-- manifest.json:
-  Archivo de control que lista todas las aceptaciones exportadas y los hashes
-  SHA256 de cada evidencia incluida en el ZIP.
-
-Integridad:
-
-La integridad de esta exportación puede verificarse recalculando los hashes
-SHA256 de cada archivo y comparándolos con los valores indicados en manifest.json.
-
-Este material tiene fines legales y probatorios.
-"""
-        zip_file.writestr("README.txt", readme_content)
-
-    app_logger.info(f"Export ZIP generado para evento {evento_id}. Aceptaciones: {len(aceptaciones)}. Incluye manifest, PDF legal y README.")
-    zip_buffer.seek(0)
-
-    safe_event_name = "".join([c for c in evento['nombre'] if c.isalnum() or c in (' ', '_', '-')]).strip().replace(" ", "_")
-    filename = f"{safe_event_name}_{evento['fecha']}.zip"
-
-    headers = {
-        "Content-Disposition": f'attachment; filename="{filename}"'
-    }
-
-    return StreamingResponse(zip_buffer, media_type="application/zip", headers=headers)
+    app_logger.info(f"CSV exportado para evento {evento_id}: {len(rows)} registros.")
+    return StreamingResponse(
+        io.BytesIO(csv_bytes),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
 
 
 @router.get("/gestion_eliminacion/{evento_id}", response_class=HTMLResponse)
@@ -1062,6 +1021,61 @@ def admin_revocar_token(
     )
 
 
+@router.post("/aceptaciones/{aceptacion_id}/anular", response_class=HTMLResponse)
+def admin_anular_aceptacion(
+    aceptacion_id: int,
+    motivo: str = Form(...),
+    username: str = Depends(get_current_username),
+) -> HTMLResponse:
+    """
+    Anula una aceptación: la marca como inválida (valido=0) sin eliminarla.
+    Registra motivo, fecha y quién anuló.
+    Al anularse, el mismo documento puede volver a registrarse en el evento.
+    """
+    aceptacion = get_aceptacion_detalle(aceptacion_id)
+    if not aceptacion:
+        raise HTTPException(status_code=404, detail="Aceptación no encontrada")
+
+    if not aceptacion.get("valido", 1):
+        raise HTTPException(status_code=400, detail="La aceptación ya está anulada")
+
+    conn = _get_connection()
+    try:
+        cur = conn.cursor()
+        fecha_anulacion = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+        cur.execute(
+            """
+            UPDATE aceptaciones
+            SET valido = 0,
+                motivo_anulacion = %s,
+                fecha_anulacion = %s,
+                anulado_por = %s
+            WHERE id = %s
+            """,
+            (motivo.strip(), fecha_anulacion, username, aceptacion_id),
+        )
+        conn.commit()
+        app_logger.info(
+            f"Aceptación anulada: id={aceptacion_id}, evento_id={aceptacion['evento_id']}, "
+            f"doc={aceptacion['documento']}, motivo='{motivo}', por={username}"
+        )
+    except Exception as e:
+        app_logger.error(f"Error anulando aceptación {aceptacion_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error al anular: {e}")
+    finally:
+        conn.close()
+
+    evento_id = aceptacion["evento_id"]
+    return HTMLResponse(
+        content=f"""
+        <script>
+            alert("Aceptación anulada correctamente.");
+            window.location.href = "/admin/evento/{evento_id}/monitor";
+        </script>
+        """
+    )
+
+
 @router.get("/evento/{evento_id}/monitor", response_class=HTMLResponse)
 def admin_monitor_evento(
     evento_id: int,
@@ -1088,11 +1102,18 @@ def admin_monitor_evento(
         cur = conn.cursor()
 
         cur.execute(
-            "SELECT COUNT(*) AS c FROM aceptaciones WHERE evento_id = %s",
+            "SELECT COUNT(*) AS c FROM aceptaciones WHERE evento_id = %s AND valido = 1",
             (evento_id,),
         )
         row = cur.fetchone()
         total_deslindes = row["c"] if row else 0
+
+        cur.execute(
+            "SELECT COUNT(*) AS c FROM aceptaciones WHERE evento_id = %s AND valido = 0",
+            (evento_id,),
+        )
+        row = cur.fetchone()
+        total_anulados = row["c"] if row else 0
 
         where_clauses = ["a.evento_id = %s"]
         params_base: List[Any] = [evento_id]
@@ -1141,7 +1162,11 @@ def admin_monitor_evento(
                 a.salud_doc_path,
                 a.salud_doc_tipo,
                 a.audio_exento,
-                a.firma_asistida
+                a.firma_asistida,
+                a.valido,
+                a.motivo_anulacion,
+                a.fecha_anulacion,
+                a.anulado_por
             FROM aceptaciones a
             JOIN eventos e ON e.id = a.evento_id
             WHERE {where_sql}
@@ -1167,6 +1192,7 @@ def admin_monitor_evento(
         query=q,
         username=username,
         total_deslindes=total_deslindes,
+        total_anulados=total_anulados,
         page=page,
         has_prev=has_prev,
         has_next=has_next,
@@ -1316,3 +1342,157 @@ def admin_ver_evidencia_full(
         raise HTTPException(status_code=400, detail="El path no es un archivo válido")
 
     return FileResponse(file_path)
+
+
+# ===========================================================================
+# Gestión de operadores
+# ===========================================================================
+
+def _listar_eventos_simple():
+    conn = _get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT id, nombre, fecha FROM eventos ORDER BY fecha DESC")
+        return [dict(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def _listar_operadores():
+    conn = _get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT id, username, evento_ids, activo, created_at FROM operadores ORDER BY id")
+        return [dict(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+@router.get("/operadores", response_class=HTMLResponse)
+def admin_operadores(
+    msg: Optional[str] = None,
+    error: Optional[str] = None,
+    username: str = Depends(get_current_username),
+) -> HTMLResponse:
+    """Listado y gestión de operadores."""
+    template = templates_env.get_template("admin_operadores.html")
+    html = template.render(
+        username=username,
+        operadores=_listar_operadores(),
+        eventos=_listar_eventos_simple(),
+        msg=msg,
+        error=error,
+    )
+    return HTMLResponse(content=html)
+
+
+@router.post("/operadores/nuevo", response_class=HTMLResponse)
+def admin_operadores_nuevo(
+    username_op: str = Form(..., alias="username"),
+    password: str = Form(...),
+    evento_ids: List[int] = Form(default=[]),
+    username: str = Depends(get_current_username),
+) -> HTMLResponse:
+    """Crea un nuevo operador."""
+    from app.middleware.auth_operator import hash_password
+
+    username_op = username_op.strip()
+    if not username_op or len(password) < 8:
+        return RedirectResponse(
+            url="/admin/operadores?error=Usuario+inv%C3%A1lido+o+contrase%C3%B1a+menor+a+8+caracteres",
+            status_code=303
+        )
+
+    ids_str = ",".join(str(i) for i in evento_ids)
+    pwd_hash = hash_password(password)
+    created_at = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+
+    conn = _get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO operadores (username, password_hash, evento_ids, activo, created_at) VALUES (%s, %s, %s, 1, %s)",
+            (username_op, pwd_hash, ids_str, created_at)
+        )
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        app_logger.error(f"Error creando operador '{username_op}': {e}")
+        return RedirectResponse(
+            url=f"/admin/operadores?error=El+usuario+ya+existe+o+hubo+un+error",
+            status_code=303
+        )
+    finally:
+        conn.close()
+
+    app_logger.info(f"Operador creado: {username_op} por admin {username}")
+    return RedirectResponse(url=f"/admin/operadores?msg=Operador+{username_op}+creado+correctamente", status_code=303)
+
+
+@router.post("/operadores/{op_id}/toggle", response_class=HTMLResponse)
+def admin_operadores_toggle(
+    op_id: int,
+    username: str = Depends(get_current_username),
+) -> HTMLResponse:
+    """Activa o desactiva un operador."""
+    conn = _get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT activo, username FROM operadores WHERE id = %s", (op_id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Operador no encontrado")
+        nuevo_estado = 0 if row["activo"] else 1
+        cur.execute("UPDATE operadores SET activo = %s WHERE id = %s", (nuevo_estado, op_id))
+        conn.commit()
+        op_username = row["username"]
+    finally:
+        conn.close()
+
+    app_logger.info(f"Operador {op_username} {'activado' if nuevo_estado else 'desactivado'} por {username}")
+    return RedirectResponse(url="/admin/operadores?msg=Estado+actualizado", status_code=303)
+
+
+@router.post("/operadores/{op_id}/eventos", response_class=HTMLResponse)
+def admin_operadores_eventos(
+    op_id: int,
+    evento_ids: List[int] = Form(default=[]),
+    username: str = Depends(get_current_username),
+) -> HTMLResponse:
+    """Actualiza los eventos asignados a un operador."""
+    ids_str = ",".join(str(i) for i in evento_ids)
+    conn = _get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("UPDATE operadores SET evento_ids = %s WHERE id = %s", (ids_str, op_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+    app_logger.info(f"Eventos de operador {op_id} actualizados a [{ids_str}] por {username}")
+    return RedirectResponse(url="/admin/operadores?msg=Eventos+actualizados", status_code=303)
+
+
+@router.post("/operadores/{op_id}/password", response_class=HTMLResponse)
+def admin_operadores_password(
+    op_id: int,
+    password: str = Form(...),
+    username: str = Depends(get_current_username),
+) -> HTMLResponse:
+    """Cambia la contraseña de un operador."""
+    from app.middleware.auth_operator import hash_password
+
+    if len(password) < 8:
+        return RedirectResponse(url="/admin/operadores?error=Contrase%C3%B1a+menor+a+8+caracteres", status_code=303)
+
+    pwd_hash = hash_password(password)
+    conn = _get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("UPDATE operadores SET password_hash = %s WHERE id = %s", (pwd_hash, op_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+    app_logger.info(f"Contraseña de operador {op_id} actualizada por {username}")
+    return RedirectResponse(url="/admin/operadores?msg=Contrase%C3%B1a+actualizada", status_code=303)

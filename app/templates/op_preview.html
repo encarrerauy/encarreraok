@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Deslinde – {{ aceptacion.nombre_participante }}</title>
+    <style>
+        body { font-family: system-ui, -apple-system, sans-serif; background: #222; color: #eee; margin: 0; display: flex; flex-direction: column; height: 100vh; }
+        .brand { background: #fff; padding: 0.75rem 1.5rem; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; border-bottom: 1px solid #ddd; }
+        .brand h1 { margin: 0; font-size: 1.1rem; color: #1a1a1a; }
+        .header { background: #333; padding: 10px 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #444; flex-shrink: 0; }
+        .header h2 { margin: 0; font-size: 1rem; }
+        .content { flex: 1; display: grid; grid-template-columns: 300px 1fr; gap: 0; overflow: hidden; }
+        .sidebar { background: #2a2a2a; padding: 20px; border-right: 1px solid #444; overflow-y: auto; }
+        .sidebar h3 { margin: 0 0 16px; font-size: 0.95rem; color: #aaa; text-transform: uppercase; letter-spacing: 0.5px; }
+        .main-view { padding: 20px; overflow-y: auto; display: flex; flex-direction: column; align-items: center; }
+        .btn { padding: 7px 14px; border-radius: 4px; text-decoration: none; cursor: pointer; display: inline-block; font-size: 0.88rem; border: none; }
+        .btn-close { background: #555; color: white; }
+        .btn-close:hover { background: #666; }
+        .btn-danger { background: #dc3545; color: white; }
+
+        .checklist-item { margin-bottom: 14px; padding-bottom: 14px; border-bottom: 1px solid #3a3a3a; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+        .checklist-item label { display: flex; align-items: center; gap: 8px; cursor: default; }
+        .checklist-item input[type="checkbox"] { transform: scale(1.2); }
+        .status-tag { padding: 2px 7px; border-radius: 4px; font-size: 0.75rem; font-weight: bold; white-space: nowrap; }
+        .tag-ok { background: #198754; color: white; }
+        .tag-miss { background: #dc3545; color: white; }
+        .tag-warn { background: #ffc107; color: #000; }
+
+        .evidence-card { background: #333; border-radius: 8px; padding: 12px; margin-bottom: 18px; width: 100%; max-width: 600px; }
+        .evidence-title { margin-bottom: 10px; font-weight: bold; color: #ccc; border-bottom: 1px solid #444; padding-bottom: 6px; font-size: 0.92rem; }
+        .img-container { position: relative; width: 100%; min-height: 180px; background: #000; display: flex; align-items: center; justify-content: center; border-radius: 4px; overflow: hidden; }
+        .img-container img { max-width: 100%; max-height: 400px; object-fit: contain; }
+        .img-container.signature { background: #fff !important; }
+        .watermark { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%) rotate(-45deg); font-size: 2.5rem; color: rgba(255,255,255,0.1); pointer-events: none; white-space: nowrap; font-weight: bold; z-index: 10; }
+        .img-container.signature .watermark { color: rgba(0,0,0,0.08); font-size: 1.8rem; }
+        .pdf-container { background: #2d2d2d; padding: 20px; text-align: center; border-radius: 4px; border: 1px solid #444; min-height: 120px; display: flex; flex-direction: column; justify-content: center; align-items: center; }
+        .pdf-icon { font-size: 2.5rem; margin-bottom: 8px; }
+        .btn-download { background: #198754; color: white; padding: 5px 12px; font-size: 0.82rem; margin-top: 8px; text-decoration: none; border-radius: 4px; display: inline-block; }
+        .btn-download:hover { background: #157347; }
+        audio { width: 100%; margin-top: 10px; }
+
+        .info-grid { font-size: 0.82rem; color: #999; margin-top: 20px; line-height: 1.8; }
+        .anulado-banner { background: #842029; color: white; padding: 10px 16px; border-radius: 6px; margin-bottom: 16px; font-size: 0.9rem; }
+
+        /* Modal Anular (reutilizado) */
+        .modal-backdrop { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 1000; align-items: center; justify-content: center; }
+        .modal-box { background: #2a2a2a; border-radius: 8px; padding: 24px; max-width: 420px; width: 90%; box-shadow: 0 8px 32px rgba(0,0,0,0.4); color: #eee; }
+        .modal-box h3 { margin: 0 0 8px; }
+        .modal-box p { font-size: 0.88rem; color: #bbb; margin: 0 0 12px; }
+        textarea { width: 100%; box-sizing: border-box; padding: 8px; border: 1px solid #555; border-radius: 4px; font-size: 0.9rem; background: #1e1e1e; color: #eee; resize: vertical; min-height: 70px; }
+        .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+        .btn-outline-dark { border: 1px solid #666; color: #ccc; background: transparent; padding: 6px 12px; border-radius: 4px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <div class="brand">
+        <div style="display:flex; align-items:center; gap:12px;">
+            <img src="/assets/logo-encarreraok.png" alt="EncarreraOK" style="max-height:36px;">
+            <span style="color:#666; font-size:0.9rem;">Operador: <strong>{{ username }}</strong></span>
+        </div>
+        <a href="/op/{{ evento_id }}/monitor" class="btn btn-close">✕ Volver al monitor</a>
+    </div>
+
+    <div class="header">
+        <h2>{{ aceptacion.nombre_participante }} — {{ aceptacion.documento }}</h2>
+        {% if aceptacion.valido == 0 %}
+        <span style="background:#842029; color:white; padding:3px 10px; border-radius:12px; font-size:0.82rem;">🔴 ANULADO</span>
+        {% endif %}
+    </div>
+
+    <div class="content">
+        <!-- Sidebar -->
+        <div class="sidebar">
+            {% if aceptacion.valido == 0 %}
+            <div class="anulado-banner">
+                🔴 <strong>ANULADO</strong><br>
+                <span style="font-size:0.82rem;">{{ aceptacion.motivo_anulacion }}</span><br>
+                <span style="font-size:0.78rem; opacity:0.8;">
+                    {{ (aceptacion.fecha_anulacion or '')|replace("T"," ")|replace("Z","") }}
+                    {% if aceptacion.anulado_por %} · {{ aceptacion.anulado_por }}{% endif %}
+                </span>
+            </div>
+            {% endif %}
+
+            <h3>Evidencias</h3>
+
+            <div class="checklist-item">
+                <label>
+                    <input type="checkbox" disabled {{ 'checked' if aceptacion.firma_path else '' }}>
+                    Firma
+                </label>
+                {% if aceptacion.firma_exists %}
+                <span class="status-tag tag-ok">OK</span>
+                {% elif aceptacion.firma_path %}
+                <span class="status-tag tag-warn">ARCHIVO FALTANTE</span>
+                {% else %}
+                <span class="status-tag tag-miss">SIN FIRMA</span>
+                {% endif %}
+            </div>
+
+            <div class="checklist-item">
+                <label>
+                    <input type="checkbox" disabled {{ 'checked' if aceptacion.doc_frente_path else '' }}>
+                    Doc. Frente
+                </label>
+                {% if aceptacion.doc_frente_exists %}
+                <span class="status-tag tag-ok">OK</span>
+                {% elif aceptacion.doc_frente_path %}
+                <span class="status-tag tag-warn">ARCHIVO FALTANTE</span>
+                {% else %}
+                <span class="status-tag tag-miss">SIN ARCHIVO</span>
+                {% endif %}
+            </div>
+
+            <div class="checklist-item">
+                <label>
+                    <input type="checkbox" disabled {{ 'checked' if aceptacion.doc_dorso_path else '' }}>
+                    Doc. Dorso
+                </label>
+                {% if aceptacion.doc_dorso_exists %}
+                <span class="status-tag tag-ok">OK</span>
+                {% elif aceptacion.doc_dorso_path %}
+                <span class="status-tag tag-warn">ARCHIVO FALTANTE</span>
+                {% else %}
+                <span class="status-tag tag-miss">SIN ARCHIVO</span>
+                {% endif %}
+            </div>
+
+            <div class="checklist-item">
+                <label>
+                    <input type="checkbox" disabled {{ 'checked' if aceptacion.audio_path else '' }}>
+                    Audio
+                </label>
+                {% if aceptacion.audio_exists %}
+                <span class="status-tag tag-ok">OK</span>
+                {% elif aceptacion.audio_exento %}
+                <span class="status-tag tag-warn">EXENTO</span>
+                {% elif aceptacion.audio_path %}
+                <span class="status-tag tag-warn">ARCHIVO FALTANTE</span>
+                {% else %}
+                <span class="status-tag tag-miss">SIN AUDIO</span>
+                {% endif %}
+            </div>
+
+            {% if aceptacion.req_salud %}
+            <div class="checklist-item">
+                <label>
+                    <input type="checkbox" disabled {{ 'checked' if aceptacion.salud_doc_path else '' }}>
+                    Doc. Salud
+                </label>
+                {% if aceptacion.salud_doc_exists %}
+                <span class="status-tag tag-ok">OK</span>
+                {% elif aceptacion.salud_doc_path %}
+                <span class="status-tag tag-warn">ARCHIVO FALTANTE</span>
+                {% else %}
+                <span class="status-tag tag-miss">SIN ARCHIVO</span>
+                {% endif %}
+            </div>
+            {% endif %}
+
+            {% if aceptacion.firma_asistida %}
+            <div style="margin-top: 8px; padding: 6px 10px; background: #333; border-radius: 4px; font-size: 0.8rem; color: #f0ad4e;">
+                ⚠️ Firma asistida
+            </div>
+            {% endif %}
+
+            <div class="info-grid">
+                <div>📅 {{ (aceptacion.fecha_hora or '')|replace("T"," ")|replace("Z","") }}</div>
+                <div>🌐 {{ aceptacion.ip or '—' }}</div>
+            </div>
+
+            {% if aceptacion.valido != 0 %}
+            <div style="margin-top: 24px;">
+                <button type="button" class="btn btn-danger" style="width:100%;"
+                    onclick="document.getElementById('modal-anular').style.display='flex'">
+                    Anular este deslinde
+                </button>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Main view -->
+        <div class="main-view">
+            {% if aceptacion.firma_exists %}
+            <div class="evidence-card">
+                <div class="evidence-title">Firma Manuscrita</div>
+                <div class="img-container signature">
+                    <div class="watermark">PREVIEW – NO VÁLIDO LEGAL</div>
+                    <img src="/op/{{ evento_id }}/evidencia/{{ aceptacion.id }}/firma?thumbnail=true" alt="Firma">
+                </div>
+            </div>
+            {% endif %}
+
+            {% if aceptacion.doc_frente_exists %}
+            <div class="evidence-card">
+                <div class="evidence-title">Documento de Identidad – Frente</div>
+                {% if aceptacion.doc_frente_path.lower().endswith('.pdf') %}
+                <div class="pdf-container">
+                    <div class="pdf-icon">📄</div>
+                    <p style="color:#aaa;">PDF cargado correctamente</p>
+                    <a href="/op/{{ evento_id }}/evidencia/{{ aceptacion.id }}/doc_frente" class="btn-download" download>Descargar</a>
+                </div>
+                {% else %}
+                <div class="img-container">
+                    <div class="watermark">PREVIEW – NO VÁLIDO LEGAL</div>
+                    <img src="/op/{{ evento_id }}/evidencia/{{ aceptacion.id }}/doc_frente?thumbnail=true" alt="Doc Frente">
+                </div>
+                {% endif %}
+            </div>
+            {% endif %}
+
+            {% if aceptacion.doc_dorso_exists %}
+            <div class="evidence-card">
+                <div class="evidence-title">Documento de Identidad – Dorso</div>
+                {% if aceptacion.doc_dorso_path.lower().endswith('.pdf') %}
+                <div class="pdf-container">
+                    <div class="pdf-icon">📄</div>
+                    <p style="color:#aaa;">PDF cargado correctamente</p>
+                    <a href="/op/{{ evento_id }}/evidencia/{{ aceptacion.id }}/doc_dorso" class="btn-download" download>Descargar</a>
+                </div>
+                {% else %}
+                <div class="img-container">
+                    <div class="watermark">PREVIEW – NO VÁLIDO LEGAL</div>
+                    <img src="/op/{{ evento_id }}/evidencia/{{ aceptacion.id }}/doc_dorso?thumbnail=true" alt="Doc Dorso">
+                </div>
+                {% endif %}
+            </div>
+            {% endif %}
+
+            {% if aceptacion.salud_doc_exists %}
+            <div class="evidence-card">
+                <div class="evidence-title">Doc. Salud ({{ aceptacion.salud_doc_tipo or '' }})</div>
+                {% if aceptacion.salud_doc_path.lower().endswith('.pdf') %}
+                <div class="pdf-container">
+                    <div class="pdf-icon">📄</div>
+                    <p style="color:#aaa;">PDF cargado correctamente</p>
+                    <a href="/op/{{ evento_id }}/evidencia/{{ aceptacion.id }}/salud_doc" class="btn-download" download>Descargar</a>
+                </div>
+                {% else %}
+                <div class="img-container">
+                    <div class="watermark">PREVIEW – NO VÁLIDO LEGAL</div>
+                    <img src="/op/{{ evento_id }}/evidencia/{{ aceptacion.id }}/salud_doc?thumbnail=true" alt="Salud">
+                </div>
+                {% endif %}
+            </div>
+            {% endif %}
+
+            {% if aceptacion.audio_exists %}
+            <div class="evidence-card">
+                <div class="evidence-title">Audio de Aceptación</div>
+                <audio controls>
+                    <source src="/op/{{ evento_id }}/evidencia/{{ aceptacion.id }}/audio" type="audio/webm">
+                    Tu navegador no soporta audio.
+                </audio>
+            </div>
+            {% endif %}
+
+            {% if not aceptacion.firma_exists and not aceptacion.doc_frente_exists and not aceptacion.audio_exists %}
+            <div style="text-align:center; padding:40px; color:#666;">
+                <p>No hay evidencias disponibles para visualizar.</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Modal Anular -->
+    <div class="modal-backdrop" id="modal-anular">
+        <div class="modal-box">
+            <h3>⚠️ Anular deslinde</h3>
+            <p><strong>{{ aceptacion.nombre_participante }}</strong> — {{ aceptacion.documento }}</p>
+            <p>Esta acción marca el deslinde como inválido. Quedará documentado con tu usuario, la fecha y el motivo. El participante podrá volver a registrarse.</p>
+            <form method="post" action="/op/{{ evento_id }}/aceptaciones/{{ aceptacion.id }}/anular">
+                <label style="font-size:0.88rem; font-weight:600; display:block; margin-bottom:4px;">Motivo <span style="color:#f66">*</span></label>
+                <textarea name="motivo" required maxlength="300" placeholder="Describí el motivo..."></textarea>
+                <div class="modal-actions">
+                    <button type="button" class="btn-outline-dark" onclick="document.getElementById('modal-anular').style.display='none'">Cancelar</button>
+                    <button type="submit" class="btn btn-danger">Confirmar anulación</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('modal-anular').addEventListener('click', function(e) {
+            if (e.target === this) this.style.display = 'none';
+        });
+    </script>
+</body>
+</html>

@@ -17,14 +17,31 @@
         th, td { padding: 12px 16px; text-align: left; border-bottom: 1px solid #eee; }
         th { background: #f8f9fa; font-weight: 600; color: #555; }
         tr:hover { background: #f1f3f5; }
+        tr.anulada { background: #fdf0f0; opacity: 0.75; }
+        tr.anulada:hover { background: #fde8e8; }
+        tr.anulada td { color: #888; }
+        tr.anulada td strong { text-decoration: line-through; }
         .status-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 12px; font-size: 0.85rem; font-weight: 500; }
         .status-ok { background: #d1e7dd; color: #0f5132; }
         .status-incomplete { background: #fff3cd; color: #664d03; }
-        .btn { text-decoration: none; padding: 6px 12px; border-radius: 4px; font-size: 0.9rem; display: inline-block; cursor: pointer; }
+        .status-anulada { background: #f8d7da; color: #842029; }
+        .btn { text-decoration: none; padding: 6px 12px; border-radius: 4px; font-size: 0.9rem; display: inline-block; cursor: pointer; border: none; }
         .btn-primary { background: #0d6efd; color: white; }
         .btn-outline { border: 1px solid #ccc; color: #555; background: white; }
+        .btn-danger { background: #dc3545; color: white; }
+        .btn-danger:hover { background: #bb2d3b; }
         .timestamp { color: #666; font-size: 0.9rem; }
         .icon { font-size: 1.1em; }
+        .motivo-anulacion { font-size: 0.8rem; color: #842029; margin-top: 2px; }
+
+        /* Modal anular */
+        .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center; }
+        .modal-overlay.active { display: flex; }
+        .modal-box { background: white; border-radius: 8px; padding: 24px; max-width: 420px; width: 90%; box-shadow: 0 8px 32px rgba(0,0,0,0.2); }
+        .modal-box h3 { margin: 0 0 8px; font-size: 1.1rem; color: #842029; }
+        .modal-box p { margin: 0 0 16px; font-size: 0.9rem; color: #555; }
+        .modal-box textarea { width: 100%; box-sizing: border-box; padding: 8px; border: 1px solid #ccc; border-radius: 4px; resize: vertical; min-height: 80px; font-size: 0.95rem; }
+        .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
     </style>
 </head>
 <body>
@@ -53,8 +70,11 @@
 
     <div class="container">
         <!-- ADMIN PATCH: pagination + counter -->
-        <div style="margin-bottom: 12px; font-size: 0.95rem; color: #333;">
-            Deslindes registrados: <strong>{{ total_deslindes }}</strong>
+        <div style="margin-bottom: 12px; font-size: 0.95rem; color: #333; display: flex; gap: 24px; align-items: center;">
+            <span>Deslindes válidos: <strong>{{ total_deslindes }}</strong></span>
+            {% if total_anulados > 0 %}
+            <span style="color: #842029;">Anulados: <strong>{{ total_anulados }}</strong></span>
+            {% endif %}
         </div>
         <div class="card">
             <table>
@@ -69,27 +89,52 @@
                 </thead>
                 <tbody>
                     {% for a in aceptaciones %}
+                    {% set es_anulada = (a.valido == 0) %}
                     {% set status_ok = true %}
-                    {% if evento.req_firma and not a.firma_path %} {% set status_ok = false %} {% endif %}
-                    {% if evento.req_documento and (not a.doc_frente_path or not a.doc_dorso_path) %} {% set status_ok = false %} {% endif %}
-                    {% if evento.req_audio and (not a.audio_path and not a.audio_exento) %} {% set status_ok = false %} {% endif %}
-                    {% if evento.req_salud and not a.salud_doc_path %} {% set status_ok = false %} {% endif %}
+                    {% if not es_anulada %}
+                        {% if evento.req_firma and not a.firma_path %} {% set status_ok = false %} {% endif %}
+                        {% if evento.req_documento and (not a.doc_frente_path or not a.doc_dorso_path) %} {% set status_ok = false %} {% endif %}
+                        {% if evento.req_audio and (not a.audio_path and not a.audio_exento) %} {% set status_ok = false %} {% endif %}
+                        {% if evento.req_salud and not a.salud_doc_path %} {% set status_ok = false %} {% endif %}
+                    {% endif %}
 
-                    <tr>
+                    <tr{% if es_anulada %} class="anulada"{% endif %}>
                         <td><strong>{{ a.nombre_participante }}</strong></td>
                         <td>{{ a.documento }}</td>
                         <td>
-                            {% if status_ok %}
+                            {% if es_anulada %}
+                            <span class="status-badge status-anulada"><span class="icon">🔴</span> ANULADO</span>
+                            {% if a.motivo_anulacion %}
+                            <div class="motivo-anulacion">{{ a.motivo_anulacion }}</div>
+                            {% endif %}
+                            {% elif status_ok %}
                             <span class="status-badge status-ok"><span class="icon">🟢</span> COMPLETO</span>
                             {% else %}
                             <span class="status-badge status-incomplete"><span class="icon">🟡</span> INCOMPLETO</span>
                             {% endif %}
                         </td>
-                        <td class="timestamp">{{ a.fecha_hora|replace("T", " ")|replace("Z", "") }}</td>
+                        <td class="timestamp">
+                            {{ a.fecha_hora|replace("T", " ")|replace("Z", "") }}
+                            {% if es_anulada and a.fecha_anulacion %}
+                            <div class="motivo-anulacion">Anulado: {{ a.fecha_anulacion|replace("T", " ")|replace("Z", "") }}{% if a.anulado_por %} por {{ a.anulado_por }}{% endif %}</div>
+                            {% endif %}
+                        </td>
                         <td>
+                            {% if not es_anulada %}
                             <a href="/admin/evento/{{ evento.id }}/preview/{{ a.id }}" class="btn {{ 'btn-primary' if not status_ok else 'btn-outline' }}">
                                 {{ '🔍 Verificar' if not status_ok else '👁️ Ver' }}
                             </a>
+                            <button type="button"
+                                class="btn btn-danger"
+                                style="margin-left: 6px;"
+                                onclick="abrirAnular({{ a.id }}, '{{ a.nombre_participante|replace("'", "\\'") }}', '{{ a.documento }}')">
+                                🚫 Anular
+                            </button>
+                            {% else %}
+                            <a href="/admin/evento/{{ evento.id }}/preview/{{ a.id }}" class="btn btn-outline">
+                                👁️ Ver
+                            </a>
+                            {% endif %}
                         </td>
                     </tr>
                     {% else %}
@@ -125,6 +170,23 @@
         </div>
         <!-- /ADMIN PATCH: pagination + counter -->
     </div>
+
+    <!-- Modal anular -->
+    <div class="modal-overlay" id="anular-modal">
+        <div class="modal-box">
+            <h3>🚫 Anular deslinde</h3>
+            <p id="anular-desc">Vas a anular el deslinde de <strong id="anular-nombre"></strong> (doc: <span id="anular-doc"></span>). Esta acción es irreversible. El registro quedará marcado como inválido.</p>
+            <form id="anular-form" method="post">
+                <label style="font-size: 0.9rem; font-weight: 600; display: block; margin-bottom: 4px;">Motivo de anulación <span style="color: #dc3545;">*</span></label>
+                <textarea name="motivo" id="anular-motivo" placeholder="Ej: Documento incorrecto, participante no autorizado..." required></textarea>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-outline" onclick="cerrarAnular()">Cancelar</button>
+                    <button type="submit" class="btn btn-danger">Confirmar anulación</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <script>
         const searchBox = document.querySelector('input[name="q"]');
         if (searchBox.value) {
@@ -139,6 +201,24 @@
                 }
             }, 10000);
         }
+
+        function abrirAnular(aceptacionId, nombre, documento) {
+            document.getElementById('anular-nombre').textContent = nombre;
+            document.getElementById('anular-doc').textContent = documento;
+            document.getElementById('anular-form').action = '/admin/aceptaciones/' + aceptacionId + '/anular';
+            document.getElementById('anular-motivo').value = '';
+            document.getElementById('anular-modal').classList.add('active');
+            document.getElementById('anular-motivo').focus();
+        }
+
+        function cerrarAnular() {
+            document.getElementById('anular-modal').classList.remove('active');
+        }
+
+        // Cerrar al hacer click fuera del box
+        document.getElementById('anular-modal').addEventListener('click', function(e) {
+            if (e.target === this) cerrarAnular();
+        });
     </script>
 </body>
 </html>

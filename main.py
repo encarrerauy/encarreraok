@@ -29,7 +29,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 from app.db.database import get_connection, is_postgres_configured
-from app.routers import public, admin
+from app.routers import public, admin, operator
 
 
 # ------------------------------------------------------------------------------
@@ -429,6 +429,7 @@ app.mount(
 # ------------------------------------------------------------------------------
 app.include_router(public.router)
 app.include_router(admin.router)
+app.include_router(operator.router)
 
 
 # ------------------------------------------------------------------------------
