@@ -40,16 +40,17 @@ def conectar_sqlite(path: str) -> sqlite3.Connection:
 
 
 def conectar_postgres(pg_url: str):
-    """Retorna una conexión psycopg2 o lanza RuntimeError con mensaje claro."""
+    """Retorna una conexión psycopg (v3) o lanza RuntimeError con mensaje claro."""
     try:
-        import psycopg2  # type: ignore
+        import psycopg  # type: ignore
     except ImportError:
         raise RuntimeError(
-            "psycopg2 no está instalado. "
-            "Ejecuta: pip install psycopg2-binary"
+            "psycopg no está instalado. "
+            "Ejecuta: pip install 'psycopg[binary]'"
         )
     try:
-        conn = psycopg2.connect(pg_url)
+        conn = psycopg.connect(pg_url)
+        conn.autocommit = False
         return conn
     except Exception as exc:
         raise RuntimeError(

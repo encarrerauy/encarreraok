@@ -62,11 +62,10 @@ router = APIRouter(prefix="/admin", dependencies=[Depends(get_current_username)]
 DB_PATH = settings.db_path
 
 
-def _get_connection() -> sqlite3.Connection:
-    """Obtiene una conexión a la base de datos SQLite."""
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+def _get_connection():
+    """Obtiene una conexión a la base de datos (SQLite o PostgreSQL)."""
+    from app.db.database import get_connection as _db_get_connection
+    return _db_get_connection()
 
 
 def get_evento(evento_id: int) -> Optional[Dict[str, Any]]:
@@ -74,7 +73,7 @@ def get_evento(evento_id: int) -> Optional[Dict[str, Any]]:
     conn = _get_connection()
     try:
         cur = conn.cursor()
-        cur.execute("SELECT * FROM eventos WHERE id = ?", (evento_id,))
+        cur.execute("SELECT * FROM eventos WHERE id = %s", (evento_id,))
         row = cur.fetchone()
         return dict(row) if row else None
     finally:
@@ -113,12 +112,14 @@ def crear_evento(
             """
             INSERT INTO eventos (
                 nombre, fecha, organizador, activo, req_firma, req_documento, req_salud, req_audio, deslinde_version, friendly_intro
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
             """,
             (nombre, fecha, organizador, activo, req_firma, req_documento, req_salud, req_audio, deslinde_version, friendly_intro)
         )
+        row = cur.fetchone()
         conn.commit()
-        evento_id = cur.lastrowid
+        evento_id = row[0] if row else None
         app_logger.info(f"Evento creado: id={evento_id}, nombre={nombre}")
         return evento_id
     finally:
@@ -196,17 +197,17 @@ def listar_aceptaciones(evento_id: Optional[int] = None, query: Optional[str] = 
         conditions = []
 
         if evento_id is not None:
-            conditions.append("a.evento_id = ?")
+            conditions.append("a.evento_id = %s")
             params.append(evento_id)
 
         if query:
             q_norm = "".join(filter(str.isdigit, query))
 
-            clauses = ["a.nombre_participante LIKE ?"]
+            clauses = ["a.nombre_participante LIKE %s"]
             params_list = [f"%{query}%"]
 
             if len(q_norm) >= 3:
-                clauses.append("a.documento_norm LIKE ?")
+                clauses.append("a.documento_norm LIKE %s")
                 params_list.append(f"%{q_norm}%")
 
             conditions.append(f"({' OR '.join(clauses)})")
@@ -266,8 +267,8 @@ def eliminar_evento_completo(evento_id: int) -> bool:
     conn = _get_connection()
     try:
         cur = conn.cursor()
-        cur.execute("DELETE FROM aceptaciones WHERE evento_id = ?", (evento_id,))
-        cur.execute("DELETE FROM eventos WHERE id = ?", (evento_id,))
+        cur.execute("DELETE FROM aceptaciones WHERE evento_id = %s", (evento_id,))
+        cur.execute("DELETE FROM eventos WHERE id = %s", (evento_id,))
         conn.commit()
         return True
     finally:
@@ -308,7 +309,7 @@ def get_aceptacion_detalle(aceptacion_id: int) -> Optional[Dict[str, Any]]:
                 a.pdf_access_count
             FROM aceptaciones a
             JOIN eventos e ON e.id = a.evento_id
-            WHERE a.id = ?
+            WHERE a.id = %s
             """,
             (aceptacion_id,)
         )
@@ -335,7 +336,7 @@ def revocar_pdf_token(aceptacion_id: int) -> bool:
     try:
         cur = conn.cursor()
         cur.execute(
-            "UPDATE aceptaciones SET pdf_token_revoked = 1 WHERE id = ?",
+            "UPDATE aceptaciones SET pdf_token_revoked = 1 WHERE id = %s",
             (aceptacion_id,)
         )
         conn.commit()
@@ -1087,22 +1088,22 @@ def admin_monitor_evento(
         cur = conn.cursor()
 
         cur.execute(
-            "SELECT COUNT(*) AS c FROM aceptaciones WHERE evento_id = ?",
+            "SELECT COUNT(*) AS c FROM aceptaciones WHERE evento_id = %s",
             (evento_id,),
         )
         row = cur.fetchone()
         total_deslindes = row["c"] if row else 0
 
-        where_clauses = ["a.evento_id = ?"]
+        where_clauses = ["a.evento_id = %s"]
         params_base: List[Any] = [evento_id]
 
         if q:
             q_norm = "".join(filter(str.isdigit, q))
-            clauses = ["a.nombre_participante LIKE ?"]
+            clauses = ["a.nombre_participante LIKE %s"]
             params_q: List[Any] = [f"%{q}%"]
 
             if len(q_norm) >= 3:
-                clauses.append("a.documento_norm LIKE ?")
+                clauses.append("a.documento_norm LIKE %s")
                 params_q.append(f"%{q_norm}%")
 
             where_clauses.append(f"({' OR '.join(clauses)})")
@@ -1145,7 +1146,7 @@ def admin_monitor_evento(
             JOIN eventos e ON e.id = a.evento_id
             WHERE {where_sql}
             ORDER BY a.fecha_hora DESC
-            LIMIT ? OFFSET ?
+            LIMIT %s OFFSET %s
         """
         params_list = list(params_base)
         params_list.extend([page_size, offset])

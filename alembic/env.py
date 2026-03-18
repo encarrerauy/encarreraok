@@ -44,7 +44,9 @@ def get_url() -> str:
     """
     database_url = os.environ.get("DATABASE_URL", "")
     if database_url:
-        # Accept any valid SQLAlchemy URL verbatim
+        # psycopg v3 requires postgresql+psycopg:// instead of postgresql://
+        if database_url.startswith("postgresql://") or database_url.startswith("postgres://"):
+            database_url = database_url.replace("://", "+psycopg://", 1)
         return database_url
 
     db_path = os.environ.get(

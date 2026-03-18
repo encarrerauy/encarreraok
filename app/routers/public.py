@@ -132,11 +132,9 @@ def comprimir_imagen(file_path: str, max_size_mb: float = MAX_IMAGE_COMPRESS_TAR
 
 
 def _get_connection():
-    """Obtiene una conexión a la base de datos SQLite."""
-    import sqlite3
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+    """Obtiene una conexión a la base de datos (SQLite o PostgreSQL)."""
+    from app.db.database import get_connection as _db_get_connection
+    return _db_get_connection()
 
 
 def get_evento(evento_id: int):
@@ -144,7 +142,7 @@ def get_evento(evento_id: int):
     conn = _get_connection()
     try:
         cur = conn.cursor()
-        cur.execute("SELECT * FROM eventos WHERE id = ?", (evento_id,))
+        cur.execute("SELECT * FROM eventos WHERE id = %s", (evento_id,))
         row = cur.fetchone()
         return dict(row) if row else None
     finally:
@@ -157,22 +155,11 @@ def aceptacion_existente(conn, evento_id: int, documento_norm: str) -> bool:
         return False
 
     cur = conn.cursor()
-
-    cur.execute("PRAGMA table_info(aceptaciones)")
-    columns = [info[1] for info in cur.fetchall()]
-    has_valido = "valido" in columns
-
-    if has_valido:
-        cur.execute(
-            "SELECT 1 FROM aceptaciones WHERE evento_id = ? AND documento_norm = ? AND valido = 1 LIMIT 1",
-            (evento_id, documento_norm)
-        )
-    else:
-        cur.execute(
-            "SELECT 1 FROM aceptaciones WHERE evento_id = ? AND documento_norm = ? LIMIT 1",
-            (evento_id, documento_norm)
-        )
-
+    # columna valido siempre existe (garantizado por Alembic migración 002)
+    cur.execute(
+        "SELECT 1 FROM aceptaciones WHERE evento_id = %s AND documento_norm = %s AND valido = 1 LIMIT 1",
+        (evento_id, documento_norm)
+    )
     return cur.fetchone() is not None
 
 
@@ -204,12 +191,14 @@ def insertar_aceptacion(
             """
             INSERT INTO aceptaciones (
                 evento_id, nombre_participante, documento, fecha_hora, ip, user_agent, deslinde_hash_sha256, firma_path, doc_frente_path, doc_dorso_path, audio_path, salud_doc_path, salud_doc_tipo, audio_exento, firma_asistida, pdf_token, documento_norm, deslinde_version
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
             """,
             (evento_id, nombre_participante, documento, fecha_hora, ip, user_agent, deslinde_hash_sha256, firma_path, doc_frente_path, doc_dorso_path, audio_path, salud_doc_path, salud_doc_tipo, audio_exento, firma_asistida, pdf_token, documento_norm, deslinde_version),
         )
+        row = cur.fetchone()
         conn.commit()
-        return cur.lastrowid
+        return row[0] if row else None
     finally:
         conn.close()
 
@@ -248,7 +237,7 @@ def get_aceptacion_por_token(pdf_token: str):
                 a.pdf_access_count
             FROM aceptaciones a
             JOIN eventos e ON e.id = a.evento_id
-            WHERE a.pdf_token = ?
+            WHERE a.pdf_token = %s
             """,
             (pdf_token,)
         )
@@ -269,9 +258,9 @@ def registrar_acceso_pdf(aceptacion_id: int):
         cur.execute(
             """
             UPDATE aceptaciones
-            SET pdf_last_access_at = ?,
+            SET pdf_last_access_at = %s,
                 pdf_access_count = COALESCE(pdf_access_count, 0) + 1
-            WHERE id = ?
+            WHERE id = %s
             """,
             (now_utc, aceptacion_id)
         )

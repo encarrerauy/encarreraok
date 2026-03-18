@@ -28,6 +28,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
+from app.db.database import get_connection, is_postgres_configured
 from app.routers import public, admin
 
 
@@ -119,13 +120,7 @@ def normalizar_documento_helper(doc: str) -> str:
     return re.sub(r"[.\-\s]", "", doc).upper()
 
 
-def get_connection() -> sqlite3.Connection:
-    """
-    Crea una conexión a la base SQLite.
-    """
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+# get_connection() importado desde app.db.database (soporta SQLite y PostgreSQL)
 
 
 # ------------------------------------------------------------------------------
@@ -170,9 +165,22 @@ def ensure_schema_migrations(conn: sqlite3.Connection) -> None:
 
 def init_db() -> None:
     """
-    Inicializa la base de datos y aplica migraciones manuales si es necesario.
+    Inicializa la base de datos.
+    - PostgreSQL: Alembic gestiona el esquema; solo se verifica la conexión.
+    - SQLite: crea tablas y aplica migraciones manuales si es necesario.
     """
     ensure_storage()
+
+    if is_postgres_configured():
+        # Con PostgreSQL el esquema lo gestiona Alembic (alembic upgrade head).
+        # Solo verificamos que la conexión es válida.
+        conn = get_connection()
+        try:
+            app_logger.info("PostgreSQL detectado — esquema gestionado por Alembic.")
+        finally:
+            conn.close()
+        return
+
     conn = get_connection()
     try:
         cur = conn.cursor()
