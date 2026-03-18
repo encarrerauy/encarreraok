@@ -119,7 +119,7 @@ def crear_evento(
         )
         row = cur.fetchone()
         conn.commit()
-        evento_id = row[0] if row else None
+        evento_id = row['id'] if row else None
         app_logger.info(f"Evento creado: id={evento_id}, nombre={nombre}")
         return evento_id
     finally:

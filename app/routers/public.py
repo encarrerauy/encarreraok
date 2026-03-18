@@ -198,7 +198,7 @@ def insertar_aceptacion(
         )
         row = cur.fetchone()
         conn.commit()
-        return row[0] if row else None
+        return row['id'] if row else None
     finally:
         conn.close()
 
