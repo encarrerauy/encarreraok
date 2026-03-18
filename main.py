@@ -7,33 +7,28 @@
 # - HTML mínimo renderizado con Jinja2
 # - Sin frameworks extra ni ORM (sqlite3 estándar)
 #
-# Este archivo `main.py` es autocontenido para el MVP:
+# Este archivo `main.py` es el orquestador principal:
 # - Inicializa la base SQLite y crea las tablas si no existen
-# - Define los modelos de datos (Pydantic) para claridad tipada
-# - Expone endpoints:
-#     GET  /e/{evento_id}        -> Formulario de aceptación
-#     POST /e/{evento_id}        -> Guarda aceptación y confirma
-#     GET  /admin/aceptaciones   -> Lista aceptaciones (sin auth)
-# - Renderiza HTML con Jinja2 usando plantillas en memoria
+# - Incluye los routers públicos y de administración
+# - Sirve archivos estáticos (/assets)
 #
 # Notas:
-# - En producción, se recomienda mover las plantillas a /var/www/encarreraok/app/templates
-#   y reemplazar el DictLoader por FileSystemLoader.
+# - En producción, se usa systemd + uvicorn.
 # - Ruta de la base: configurable con ENV `ENCARRERAOK_DB_PATH`.
 
-from fastapi import FastAPI
-from app.config import settings
-from pathlib import Path
-from pydantic import BaseModel
-from datetime import datetime, date
-import sqlite3
 import os
 import re
 import stat
-import hashlib
+import sqlite3
 import logging
-from typing import Optional, List, Dict, Any
+from datetime import date
 from logging.handlers import RotatingFileHandler
+
+from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+
+from app.config import settings
+from app.routers import public, admin
 
 
 # ------------------------------------------------------------------------------
@@ -83,7 +78,6 @@ DEFAULT_DESLINDE_VERSION = "v1_1"
 # ------------------------------------------------------------------------------
 # Configuración de base de datos SQLite y Almacenamiento
 # ------------------------------------------------------------------------------
-DEFAULT_DB_PATH = "/var/lib/encarreraok/encarreraok.sqlite3"
 DB_PATH = settings.db_path
 EVIDENCIAS_DIR = os.path.join(os.path.dirname(DB_PATH), "evidencias")
 FIRMAS_DIR = os.path.join(EVIDENCIAS_DIR, "firmas")
@@ -408,41 +402,11 @@ def init_db() -> None:
 
 
 # ------------------------------------------------------------------------------
-# Modelos de datos (Pydantic) para documentación y validación básica
-# ------------------------------------------------------------------------------
-class Evento(BaseModel):
-    id: int
-    nombre: str
-    fecha: date
-    organizador: str
-    activo: bool
-    req_firma: bool = False
-    req_documento: bool = False
-    req_audio: bool = False
-    friendly_intro: bool = False  # DESLINDE PATCH: friendly intro
-
-
-class Aceptacion(BaseModel):
-    id: int
-    evento_id: int
-    nombre_participante: str
-    documento: str
-    fecha_hora: datetime
-    ip: str
-    user_agent: str
-    firma_path: Optional[str] = None
-    doc_frente_path: Optional[str] = None
-    doc_dorso_path: Optional[str] = None
-    audio_path: Optional[str] = None
-
-
-# ------------------------------------------------------------------------------
 # Configuración de aplicación FastAPI
 # ------------------------------------------------------------------------------
 app = FastAPI(title="EncarreraOK - MVP deslindes")
 
 # STATIC PATCH: serve assets
-from fastapi.staticfiles import StaticFiles
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 app.mount(
     "/assets",
@@ -454,7 +418,6 @@ app.mount(
 # ------------------------------------------------------------------------------
 # Registrar routers
 # ------------------------------------------------------------------------------
-from app.routers import public, admin
 app.include_router(public.router)
 app.include_router(admin.router)
 
@@ -497,108 +460,3 @@ if __name__ == "__main__":
     #   python main.py
     #   Navegar a: http://127.0.0.1:8000/docs
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
-
-
-# ==============================================================================
-# PLAN DE PRUEBAS MANUALES
-# ==============================================================================
-#
-# Objetivo: Verificar logging, visualización de paths y detalle de aceptaciones
-#
-# PREREQUISITOS:
-# - Servidor corriendo (python main.py o systemd)
-# - Directorio /var/log/encarreraok debe existir o tener permisos
-# - Evento creado (se crea automáticamente si la DB está vacía)
-#
-# PASO 1: Verificar logging básico
-#   - Acceder a GET /e/1 (formulario)
-#   - Verificar que /var/log/encarreraok/app.log existe
-#   - Comando: tail -f /var/log/encarreraok/app.log
-#   - Esperar: No debería haber logs aún (solo POST genera logs)
-#
-# PASO 2: Crear aceptación con todas las evidencias (Desktop)
-#   - Navegar a http://localhost:8000/e/1
-#   - Completar formulario:
-#     * Nombre: "Test Usuario"
-#     * Documento: "12345678"
-#     * Subir foto frente documento (imagen < 4MB)
-#     * Subir foto dorso documento (imagen < 4MB)
-#     * Grabar audio de aceptación (< 5MB)
-#     * Firmar en canvas
-#     * Marcar checkbox acepto
-#   - Enviar formulario
-#   - Verificar logs esperados:
-#     * [request_id] Inicio procesamiento aceptación - evento_id=1
-#     * [request_id] Firma guardada: path=..., size=... bytes
-#     * [request_id] Doc frente guardado: path=..., size=... bytes
-#     * [request_id] Doc dorso guardado: path=..., size=... bytes
-#     * [request_id] Audio guardado: path=..., size=... bytes
-#     * [request_id] Aceptación guardada exitosamente - aceptacion_id=...
-#
-# PASO 3: Verificar listado admin con paths
-#   - Navegar a http://localhost:8000/admin/aceptaciones
-#   - Verificar que aparecen nuevas columnas:
-#     * Firma Path
-#     * Doc Frente Path
-#     * Doc Dorso Path
-#     * Audio Path
-#   - Verificar que los paths se muestran (truncados si son largos)
-#   - Verificar que el ID es un link clickeable
-#
-# PASO 4: Verificar detalle de aceptación
-#   - Click en el ID de la aceptación creada (o navegar a /admin/aceptaciones/1)
-#   - Verificar que se muestra:
-#     * Todos los datos de la aceptación
-#     * Todos los paths completos
-#     * "Firma Existe: Sí" (en verde)
-#     * "Doc Frente Existe: Sí" (en verde)
-#     * "Doc Dorso Existe: Sí" (en verde)
-#     * "Audio Existe: Sí" (en verde)
-#   - Verificar link "← Volver a lista" funciona
-#
-# PASO 5: Probar con imagen grande (compresión)
-#   - Navegar a http://localhost:8000/e/1
-#   - Subir imagen de documento > 2MB pero < 4MB
-#   - Verificar en logs:
-#     * [request_id] Comprimiendo doc frente: ... bytes
-#     * [request_id] Doc frente comprimido: ... -> ... bytes
-#   - Completar y enviar formulario
-#   - Verificar que la aceptación se guarda correctamente
-#
-# PASO 6: Probar error 413 y logging de excepciones (Mobile/Desktop)
-#   - Navegar a http://localhost:8000/e/1 desde móvil o desktop
-#   - Intentar subir imagen > 4MB
-#   - Verificar que se rechaza con mensaje claro
-#   - Verificar en logs:
-#     * [request_id] Doc frente demasiado grande: ... bytes
-#   - Intentar enviar firma muy grande (dibujar mucho en canvas)
-#   - Verificar que se rechaza antes de enviar (validación frontend)
-#   - Si se envía de alguna forma, verificar en logs:
-#     * [request_id] Firma demasiado grande: ... bytes
-#   - Probar con audio > 5MB
-#   - Verificar en logs:
-#     * [request_id] Audio demasiado grande: ... bytes
-#
-# VERIFICACIÓN FINAL:
-#   - Revisar /var/log/encarreraok/app.log completo
-#   - Verificar que todos los request_id son únicos
-#   - Verificar que todos los tamaños están en bytes
-#   - Verificar que todos los paths son absolutos
-#   - Verificar que no hay excepciones sin loggear
-#   - Verificar rotación: si el log supera 10MB, debería rotar
-#
-# NOTAS:
-#   - Si /var/log/encarreraok no tiene permisos, el log se crea en el directorio actual
-#   - Los logs incluyen timestamp, nivel, y mensaje estructurado
-#   - Los excepciones incluyen stacktrace completo
-#   - Los paths verificados en detalle usan os.path.exists() en tiempo real
-
-# ==============================================================================
-# BACKLOG DE SEGURIDAD / LEGALES
-# ==============================================================================
-# - Rate limiting en endpoint público (Nginx / middleware)
-# - Firma temporal externa (timestamp authority)
-# - Hash anclado externo (blockchain / TSA)
-# - Descarga con watermark opcional
-# - Política de retención configurable por evento
-# ==============================================================================
