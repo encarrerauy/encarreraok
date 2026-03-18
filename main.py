@@ -175,9 +175,6 @@ def init_db() -> None:
     ensure_storage()
     conn = get_connection()
     try:
-        # TAREA 2: Asegurar migraciones antes de cualquier otra operación
-        ensure_schema_migrations(conn)
-
         cur = conn.cursor()
         # Tabla de eventos
         cur.execute(
@@ -397,6 +394,10 @@ def init_db() -> None:
             pass
 
         conn.commit()
+
+        # Migraciones de columnas — deben correr DESPUÉS de los CREATE TABLE
+        ensure_schema_migrations(conn)
+
     finally:
         conn.close()
 
