@@ -146,8 +146,8 @@ def actualizar_evento(
         cur.execute(
             """
             UPDATE eventos
-            SET nombre=?, fecha=?, organizador=?, activo=?, req_firma=?, req_documento=?, req_salud=?, req_audio=?, deslinde_version=?, friendly_intro=?
-            WHERE id=?
+            SET nombre=%s, fecha=%s, organizador=%s, activo=%s, req_firma=%s, req_documento=%s, req_salud=%s, req_audio=%s, deslinde_version=%s, friendly_intro=%s
+            WHERE id=%s
             """,
             (nombre, fecha, organizador, activo, req_firma, req_documento, req_salud, req_audio, deslinde_version, friendly_intro, evento_id)
         )
