@@ -25,6 +25,8 @@ from fastapi import FastAPI, Request, Form, HTTPException, UploadFile, File, Dep
 from fastapi.responses import HTMLResponse, StreamingResponse, FileResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from jinja2 import Environment, FileSystemLoader
+from app.config import settings
+from app.middleware.auth import get_current_username, security
 from pathlib import Path
 from pydantic import BaseModel
 from datetime import datetime, date
@@ -120,7 +122,7 @@ MAX_IMAGE_COMPRESS_THRESHOLD_MB = 2  # Si supera esto, comprimir
 MAX_IMAGE_COMPRESS_TARGET_MB = 1.5   # Objetivo después de compresión
 
 # Configuración de versiones de deslinde
-LEGAL_DIR = os.environ.get("ENCARRERAOK_LEGAL_DIR", "legal")
+LEGAL_DIR = settings.legal_dir
 DESLINDES_CONFIG = {
     "v1_1": "deslinde_v1_1_ligero.txt",
     "v2_0": "deslinde_v2_0_legal_fuerte.txt",
@@ -192,7 +194,7 @@ templates_env.filters["fecha_ddmmaaaa"] = fecha_ddmmaaaa
 # Configuración de base de datos SQLite y Almacenamiento
 # ------------------------------------------------------------------------------
 DEFAULT_DB_PATH = "/var/lib/encarreraok/encarreraok.sqlite3"
-DB_PATH = os.environ.get("ENCARRERAOK_DB_PATH", DEFAULT_DB_PATH)
+DB_PATH = settings.db_path
 EVIDENCIAS_DIR = os.path.join(os.path.dirname(DB_PATH), "evidencias")
 FIRMAS_DIR = os.path.join(EVIDENCIAS_DIR, "firmas")
 DOCUMENTOS_DIR = os.path.join(EVIDENCIAS_DIR, "documentos")
@@ -2112,30 +2114,6 @@ def procesar_aceptacion(
             f"{traceback.format_exc()}"
         )
         raise HTTPException(status_code=500, detail="Error interno del servidor")
-
-
-# ------------------------------------------------------------------------------
-# Seguridad (Basic Auth para Admin)
-# ------------------------------------------------------------------------------
-security = HTTPBasic()
-
-def get_current_username(credentials: HTTPBasicCredentials = Depends(security)):
-    """Verifica credenciales para acceso admin."""
-    # Valores por defecto para desarrollo; en producción usar ENV vars
-    correct_username = os.environ.get("ADMIN_USER", "admin")
-    correct_password = os.environ.get("ADMIN_PASSWORD", "encarrera2025")
-    
-    # Comparación segura para evitar timing attacks
-    is_correct_username = secrets.compare_digest(credentials.username.encode("utf8"), correct_username.encode("utf8"))
-    is_correct_password = secrets.compare_digest(credentials.password.encode("utf8"), correct_password.encode("utf8"))
-    
-    if not (is_correct_username and is_correct_password):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Credenciales incorrectas",
-            headers={"WWW-Authenticate": "Basic"},
-        )
-    return credentials.username
 
 
 # ADMIN PATCH: fix admin home auth (moved security block up)
