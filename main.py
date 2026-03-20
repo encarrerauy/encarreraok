@@ -450,7 +450,7 @@ def on_startup() -> None:
             cur.execute(
                 """
                 INSERT INTO eventos (nombre, fecha, organizador, activo, deslinde_version)
-                VALUES (?, ?, ?, ?, ?)
+                VALUES (%s, %s, %s, %s, %s)
                 """,
                 ("Carrera 10K Montevideo", date.today().isoformat(), "Encarrera", 1, "v1_1"),
             )
