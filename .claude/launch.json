@@ -1,0 +1,23 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "EncarreraOK API (dev - SQLite)",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "cd /Users/fernandosilva/dev/encarreraok/.claude/worktrees/eloquent-goodall && ADMIN_PASSWORD=dev1234 ADMIN_USER=admin ENCARRERAOK_DB_PATH=/Users/fernandosilva/dev/encarreraok/.claude/worktrees/eloquent-goodall/test_local.sqlite3 ENCARRERAOK_LEGAL_DIR=/Users/fernandosilva/dev/encarreraok/.claude/worktrees/eloquent-goodall/legal /Users/fernandosilva/dev/encarreraok/venv/bin/uvicorn main:app --reload --port 8000"
+      ],
+      "port": 8000
+    },
+    {
+      "name": "EncarreraOK API (dev - PostgreSQL)",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "cd /Users/fernandosilva/dev/encarreraok/.claude/worktrees/eloquent-goodall && ADMIN_PASSWORD=dev1234 ADMIN_USER=admin DATABASE_URL=postgresql://encarrera:encarrera_dev_2026@localhost:5432/encarreraok ENCARRERAOK_DB_PATH=/Users/fernandosilva/dev/encarreraok/.claude/worktrees/eloquent-goodall/test_local.sqlite3 ENCARRERAOK_LEGAL_DIR=/Users/fernandosilva/dev/encarreraok/.claude/worktrees/eloquent-goodall/legal /Users/fernandosilva/dev/encarreraok/venv/bin/uvicorn main:app --reload --port 8000"
+      ],
+      "port": 8000
+    }
+  ]
+}

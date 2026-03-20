@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Monitor - {{ evento.nombre }}</title>
+    {# Meta refresh removido para evitar borrado de input. Se maneja con JS. #}
+    <style>
+        body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 0; background: #f4f6f9; }
+        .header { background: white; padding: 16px 24px; border-bottom: 1px solid #ddd; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        .header h1 { margin: 0; font-size: 1.25rem; }
+        .header .controls { display: flex; gap: 10px; }
+        .container { padding: 24px; max-width: 1200px; margin: 0 auto; }
+        .search-box { padding: 8px 12px; border: 1px solid #ccc; border-radius: 4px; width: 250px; }
+        .card { background: white; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); overflow: hidden; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 12px 16px; text-align: left; border-bottom: 1px solid #eee; }
+        th { background: #f8f9fa; font-weight: 600; color: #555; }
+        tr:hover { background: #f1f3f5; }
+        tr.anulada { background: #fdf0f0; opacity: 0.75; }
+        tr.anulada:hover { background: #fde8e8; }
+        tr.anulada td { color: #888; }
+        tr.anulada td strong { text-decoration: line-through; }
+        .status-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 12px; font-size: 0.85rem; font-weight: 500; }
+        .status-ok { background: #d1e7dd; color: #0f5132; }
+        .status-incomplete { background: #fff3cd; color: #664d03; }
+        .status-anulada { background: #f8d7da; color: #842029; }
+        .btn { text-decoration: none; padding: 6px 12px; border-radius: 4px; font-size: 0.9rem; display: inline-block; cursor: pointer; border: none; }
+        .btn-primary { background: #0d6efd; color: white; }
+        .btn-outline { border: 1px solid #ccc; color: #555; background: white; }
+        .btn-danger { background: #dc3545; color: white; }
+        .btn-danger:hover { background: #bb2d3b; }
+        .timestamp { color: #666; font-size: 0.9rem; }
+        .icon { font-size: 1.1em; }
+        .motivo-anulacion { font-size: 0.8rem; color: #842029; margin-top: 2px; }
+
+        /* Modal anular */
+        .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center; }
+        .modal-overlay.active { display: flex; }
+        .modal-box { background: white; border-radius: 8px; padding: 24px; max-width: 420px; width: 90%; box-shadow: 0 8px 32px rgba(0,0,0,0.2); }
+        .modal-box h3 { margin: 0 0 8px; font-size: 1.1rem; color: #842029; }
+        .modal-box p { margin: 0 0 16px; font-size: 0.9rem; color: #555; }
+        .modal-box textarea { width: 100%; box-sizing: border-box; padding: 8px; border: 1px solid #ccc; border-radius: 4px; resize: vertical; min-height: 80px; font-size: 0.95rem; }
+        .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+    </style>
+</head>
+<body>
+    <!-- ADMIN PATCH: brand header -->
+    <div style="background: #fff; padding: 1rem 1.5rem; border-bottom: 1px solid #ddd; display: flex; align-items: center; justify-content: space-between;">
+        <div>
+            <h1 style="margin: 0; font-size: 1.25rem; color: #1a1a1a;">EncarreraOK <span style="font-weight:normal; font-size:1rem; color:#666;">Admin</span></h1>
+            <!-- BRAND PATCH: add logo -->
+            <img src="/assets/logo-encarreraok.png" alt="EncarreraOK" style="max-width:180px; width:100%; height:auto; margin-bottom:12px;">
+            <div style="font-size: 0.8rem; color: #666; text-transform: uppercase; letter-spacing: 1px;">Evidencia clara. Eventos seguros.</div>
+        </div>
+        <div style="font-size: 0.9rem; color: #666;">Usuario: <strong>{{ username }}</strong></div>
+    </div>
+    <!-- /ADMIN PATCH -->
+    <div class="header">
+        <div style="display: flex; align-items: center; gap: 16px;">
+            <a href="/admin/eventos" class="btn btn-outline">← Volver</a>
+            <h1>Monitor: {{ evento.nombre }}</h1>
+        </div>
+        <div class="controls">
+            <form action="" method="get">
+                <input type="text" inputmode="numeric" name="q" class="search-box" placeholder="Buscar por nombre o documento..." value="{{ query or '' }}" autocomplete="off">
+            </form>
+        </div>
+    </div>
+
+    <div class="container">
+        <!-- ADMIN PATCH: pagination + counter -->
+        <div style="margin-bottom: 12px; font-size: 0.95rem; color: #333; display: flex; gap: 24px; align-items: center;">
+            <span>Deslindes válidos: <strong>{{ total_deslindes }}</strong></span>
+            {% if total_anulados > 0 %}
+            <span style="color: #842029;">Anulados: <strong>{{ total_anulados }}</strong></span>
+            {% endif %}
+        </div>
+        <div class="card">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Nombre</th>
+                        <th>Documento</th>
+                        <th>Estado</th>
+                        <th>Hora</th>
+                        <th>Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for a in aceptaciones %}
+                    {% set es_anulada = (a.valido == 0) %}
+                    {% set status_ok = true %}
+                    {% if not es_anulada %}
+                        {% if evento.req_firma and not a.firma_path %} {% set status_ok = false %} {% endif %}
+                        {% if evento.req_documento and (not a.doc_frente_path or not a.doc_dorso_path) %} {% set status_ok = false %} {% endif %}
+                        {% if evento.req_audio and (not a.audio_path and not a.audio_exento) %} {% set status_ok = false %} {% endif %}
+                        {% if evento.req_salud and not a.salud_doc_path %} {% set status_ok = false %} {% endif %}
+                    {% endif %}
+
+                    <tr{% if es_anulada %} class="anulada"{% endif %}>
+                        <td><strong>{{ a.nombre_participante }}</strong></td>
+                        <td>{{ a.documento }}</td>
+                        <td>
+                            {% if es_anulada %}
+                            <span class="status-badge status-anulada"><span class="icon">🔴</span> ANULADO</span>
+                            {% if a.motivo_anulacion %}
+                            <div class="motivo-anulacion">{{ a.motivo_anulacion }}</div>
+                            {% endif %}
+                            {% elif status_ok %}
+                            <span class="status-badge status-ok"><span class="icon">🟢</span> COMPLETO</span>
+                            {% else %}
+                            <span class="status-badge status-incomplete"><span class="icon">🟡</span> INCOMPLETO</span>
+                            {% endif %}
+                        </td>
+                        <td class="timestamp">
+                            {{ a.fecha_hora|replace("T", " ")|replace("Z", "") }}
+                            {% if es_anulada and a.fecha_anulacion %}
+                            <div class="motivo-anulacion">Anulado: {{ a.fecha_anulacion|replace("T", " ")|replace("Z", "") }}{% if a.anulado_por %} por {{ a.anulado_por }}{% endif %}</div>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if not es_anulada %}
+                            <a href="/admin/evento/{{ evento.id }}/preview/{{ a.id }}" class="btn {{ 'btn-primary' if not status_ok else 'btn-outline' }}">
+                                {{ '🔍 Verificar' if not status_ok else '👁️ Ver' }}
+                            </a>
+                            <button type="button"
+                                class="btn btn-danger"
+                                style="margin-left: 6px;"
+                                onclick="abrirAnular({{ a.id }}, '{{ a.nombre_participante|replace("'", "\\'") }}', '{{ a.documento }}')">
+                                🚫 Anular
+                            </button>
+                            {% else %}
+                            <a href="/admin/evento/{{ evento.id }}/preview/{{ a.id }}" class="btn btn-outline">
+                                👁️ Ver
+                            </a>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="5" style="text-align: center; padding: 24px; color: #666;">
+                            {% if query %}
+                            No se encontraron resultados para "{{ query }}"
+                            {% else %}
+                            Esperando registros...
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-top: 1px solid #eee;">
+                <div style="font-size: 0.9rem; color: #555;">
+                    Página {{ page }}
+                </div>
+                <div style="display: flex; gap: 8px;">
+                    {% if has_prev %}
+                    <a href="/admin/evento/{{ evento.id }}/monitor?{% if query %}q={{ query }}&{% endif %}page={{ page - 1 }}" class="btn btn-outline">Anterior</a>
+                    {% else %}
+                    <span class="btn btn-outline" style="opacity: 0.5; cursor: default; pointer-events: none;">Anterior</span>
+                    {% endif %}
+                    {% if has_next %}
+                    <a href="/admin/evento/{{ evento.id }}/monitor?{% if query %}q={{ query }}&{% endif %}page={{ page + 1 }}" class="btn btn-primary">Siguiente</a>
+                    {% else %}
+                    <span class="btn btn-outline" style="opacity: 0.5; cursor: default; pointer-events: none;">Siguiente</span>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        <!-- /ADMIN PATCH: pagination + counter -->
+    </div>
+
+    <!-- Modal anular -->
+    <div class="modal-overlay" id="anular-modal">
+        <div class="modal-box">
+            <h3>🚫 Anular deslinde</h3>
+            <p id="anular-desc">Vas a anular el deslinde de <strong id="anular-nombre"></strong> (doc: <span id="anular-doc"></span>). Esta acción es irreversible. El registro quedará marcado como inválido.</p>
+            <form id="anular-form" method="post">
+                <label style="font-size: 0.9rem; font-weight: 600; display: block; margin-bottom: 4px;">Motivo de anulación <span style="color: #dc3545;">*</span></label>
+                <textarea name="motivo" id="anular-motivo" placeholder="Ej: Documento incorrecto, participante no autorizado..." required></textarea>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-outline" onclick="cerrarAnular()">Cancelar</button>
+                    <button type="submit" class="btn btn-danger">Confirmar anulación</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        const searchBox = document.querySelector('input[name="q"]');
+        if (searchBox.value) {
+            searchBox.focus();
+            const len = searchBox.value.length;
+            searchBox.setSelectionRange(len, len);
+        } else {
+            // Auto-refresh solo si el input está vacío y no hay interacción
+            setTimeout(function() {
+                if (!searchBox.value) {
+                    window.location.reload();
+                }
+            }, 10000);
+        }
+
+        function abrirAnular(aceptacionId, nombre, documento) {
+            document.getElementById('anular-nombre').textContent = nombre;
+            document.getElementById('anular-doc').textContent = documento;
+            document.getElementById('anular-form').action = '/admin/aceptaciones/' + aceptacionId + '/anular';
+            document.getElementById('anular-motivo').value = '';
+            document.getElementById('anular-modal').classList.add('active');
+            document.getElementById('anular-motivo').focus();
+        }
+
+        function cerrarAnular() {
+            document.getElementById('anular-modal').classList.remove('active');
+        }
+
+        // Cerrar al hacer click fuera del box
+        document.getElementById('anular-modal').addEventListener('click', function(e) {
+            if (e.target === this) cerrarAnular();
+        });
+    </script>
+</body>
+</html>

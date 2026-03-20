@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Detalle Aceptación #{{ aceptacion.id }}</title>
+    <style>
+        body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 24px; }
+        .card { max-width: 800px; margin: 0 auto; padding: 24px; border: 1px solid #ddd; border-radius: 8px; }
+        .field { margin-bottom: 16px; }
+        .label { font-weight: bold; display: block; color: #555; }
+        .value { word-break: break-all; }
+        .status-ok { color: green; font-weight: bold; }
+        .status-missing { color: red; font-weight: bold; }
+        h2 { margin-top: 24px; border-bottom: 1px solid #eee; padding-bottom: 8px; }
+        .btn-back { display: inline-block; margin-bottom: 16px; text-decoration: none; color: #0d6efd; }
+    </style>
+</head>
+<body>
+    <!-- ADMIN PATCH: brand header -->
+    <div style="background: #fff; padding: 1rem 1.5rem; border-bottom: 1px solid #ddd; display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; margin-left: -24px; margin-right: -24px; margin-top: -24px;">
+        <div>
+            <h1 style="margin: 0; font-size: 1.25rem; color: #1a1a1a;">EncarreraOK <span style="font-weight:normal; font-size:1rem; color:#666;">Admin</span></h1>
+            <!-- BRAND PATCH: add logo -->
+            <img src="/assets/logo-encarreraok.png" alt="EncarreraOK" style="max-width:180px; width:100%; height:auto; margin-bottom:12px;">
+            <div style="font-size: 0.8rem; color: #666; text-transform: uppercase; letter-spacing: 1px;">Evidencia clara. Eventos seguros.</div>
+        </div>
+        <div style="font-size: 0.9rem; color: #666;">Usuario: <strong>{{ username }}</strong></div>
+    </div>
+    <!-- /ADMIN PATCH -->
+    <div class="card">
+        <a href="/admin/aceptaciones" class="btn-back">← Volver a lista</a>
+        <h1>Aceptación #{{ aceptacion.id }}</h1>
+
+        <h2>Participante</h2>
+        <div class="field">
+            <span class="label">Nombre:</span>
+            <span class="value">{{ aceptacion.nombre_participante }}</span>
+        </div>
+        <div class="field">
+            <span class="label">Documento:</span>
+            <span class="value">{{ aceptacion.documento }}</span>
+        </div>
+
+        <h2>Evento</h2>
+        <div class="field">
+            <span class="label">Evento:</span>
+            <span class="value">{{ aceptacion.evento_nombre }} ({{ aceptacion.evento_fecha }})</span>
+        </div>
+        <div class="field">
+            <span class="label">Organizador:</span>
+            <span class="value">{{ aceptacion.evento_organizador }}</span>
+        </div>
+
+        <h2>Auditoría</h2>
+        <div class="field">
+            <span class="label">Fecha/Hora (UTC):</span>
+            <span class="value">{{ aceptacion.fecha_hora }}</span>
+        </div>
+        <div class="field">
+            <span class="label">IP:</span>
+            <span class="value">{{ aceptacion.ip }}</span>
+        </div>
+        <div class="field">
+            <span class="label">User Agent:</span>
+            <span class="value">{{ aceptacion.user_agent }}</span>
+        </div>
+        <div class="field">
+            <span class="label">Hash Deslinde:</span>
+            <span class="value">{{ aceptacion.deslinde_hash_sha256 }}</span>
+        </div>
+
+        <h2>Accesibilidad y Salud</h2>
+        <div class="field">
+            <span class="label">Tipo Documento Salud:</span>
+            <span class="value">{{ aceptacion.salud_doc_tipo or 'No especificado' }}</span>
+        </div>
+        <div class="field">
+            <span class="label">Exención de Audio (Accesibilidad):</span>
+            <span class="value">{{ 'SÍ' if aceptacion.audio_exento else 'NO' }}</span>
+        </div>
+        <div class="field">
+            <span class="label">Firma Asistida (Accesibilidad):</span>
+            <span class="value">{{ 'SÍ' if aceptacion.firma_asistida else 'NO' }}</span>
+        </div>
+
+        <h2>Control de Token PDF (Legal)</h2>
+        <div class="field">
+            <span class="label">Token ID:</span>
+            <span class="value" style="font-family: monospace;">{{ aceptacion.pdf_token }}</span>
+        </div>
+        <div class="field">
+            <span class="label">Estado:</span>
+            <span class="value">
+                {% if aceptacion.pdf_token_revoked %}
+                    <span style="color: #dc3545; font-weight: bold;">REVOCADO</span>
+                {% elif aceptacion.pdf_token_expires_at and aceptacion.pdf_token_expires_at < now_utc %}
+                    <span style="color: #dc3545; font-weight: bold;">VENCIDO</span>
+                {% else %}
+                    <span style="color: #198754; font-weight: bold;">ACTIVO</span>
+                {% endif %}
+            </span>
+        </div>
+        <div class="field">
+            <span class="label">Expiración:</span>
+            <span class="value">{{ aceptacion.pdf_token_expires_at or 'Indefinida' }}</span>
+        </div>
+        <div class="field">
+            <span class="label">Accesos:</span>
+            <span class="value">{{ aceptacion.pdf_access_count or 0 }} (Último: {{ aceptacion.pdf_last_access_at or 'Nunca' }})</span>
+        </div>
+
+        <div style="margin-top: 16px; display: flex; gap: 10px; align-items: center;">
+            <a href="/aceptacion/pdf/{{ aceptacion.pdf_token }}" target="_blank" class="btn" style="background: #0d6efd; color: white;">Probar descarga pública</a>
+
+            {% if not aceptacion.pdf_token_revoked %}
+            <form action="/admin/aceptaciones/{{ aceptacion.id }}/revocar_token" method="post" onsubmit="return confirm('¿Seguro que desea revocar este token? El usuario ya no podrá descargar el PDF.');" style="margin: 0;">
+                <button type="submit" class="btn" style="background: #dc3545; color: white;">Revocar Token</button>
+            </form>
+            {% endif %}
+        </div>
+
+        <h2>Evidencias</h2>
+
+        <div class="field">
+            <span class="label">Firma:</span>
+            <div class="value">Path: {{ aceptacion.firma_path or 'N/A' }}</div>
+            <div>Estado: 
+                {% if aceptacion.firma_path %}
+                    <span class="{{ 'status-ok' if aceptacion.firma_exists else 'status-missing' }}">
+                        {{ 'ARCHIVO EXISTE' if aceptacion.firma_exists else 'ARCHIVO NO ENCONTRADO' }}
+                    </span>
+                {% else %}
+                    -
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="field">
+            <span class="label">Documento Frente:</span>
+            <div class="value">Path: {{ aceptacion.doc_frente_path or 'N/A' }}</div>
+            <div>Estado: 
+                {% if aceptacion.doc_frente_path %}
+                    <span class="{{ 'status-ok' if aceptacion.doc_frente_exists else 'status-missing' }}">
+                        {{ 'ARCHIVO EXISTE' if aceptacion.doc_frente_exists else 'ARCHIVO NO ENCONTRADO' }}
+                    </span>
+                {% else %}
+                    -
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="field">
+            <span class="label">Documento Dorso:</span>
+            <div class="value">Path: {{ aceptacion.doc_dorso_path or 'N/A' }}</div>
+            <div>Estado: 
+                {% if aceptacion.doc_dorso_path %}
+                    <span class="{{ 'status-ok' if aceptacion.doc_dorso_exists else 'status-missing' }}">
+                        {{ 'ARCHIVO EXISTE' if aceptacion.doc_dorso_exists else 'ARCHIVO NO ENCONTRADO' }}
+                    </span>
+                {% else %}
+                    -
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="field">
+            <span class="label">Documento Salud:</span>
+            <div class="value">Path: {{ aceptacion.salud_doc_path or 'N/A' }}</div>
+            <div>Estado: 
+                {% if aceptacion.salud_doc_path %}
+                    <span class="{{ 'status-ok' if aceptacion.salud_doc_exists else 'status-missing' }}">
+                        {{ 'ARCHIVO EXISTE' if aceptacion.salud_doc_exists else 'ARCHIVO NO ENCONTRADO' }}
+                    </span>
+                {% else %}
+                    -
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="field">
+            <span class="label">Audio:</span>
+            <div class="value">Path: {{ aceptacion.audio_path or 'N/A' }}</div>
+            <div>Estado: 
+                {% if aceptacion.audio_path %}
+                    <span class="{{ 'status-ok' if aceptacion.audio_exists else 'status-missing' }}">
+                        {{ 'ARCHIVO EXISTE' if aceptacion.audio_exists else 'ARCHIVO NO ENCONTRADO' }}
+                    </span>
+                {% else %}
+                    -
+                {% endif %}
+            </div>
+        </div>
+
+    </div>
+</body>
+</html>

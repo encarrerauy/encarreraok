@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Admin – Operadores</title>
+    <style>
+        body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 24px; background: #f4f6f9; }
+        .brand { background: #fff; padding: 1rem 1.5rem; border-bottom: 1px solid #ddd; display: flex; align-items: center; justify-content: space-between; margin: -24px -24px 24px; }
+        .brand h1 { margin: 0; font-size: 1.25rem; color: #1a1a1a; }
+        h2 { margin: 0 0 20px; font-size: 1.1rem; }
+        .toolbar { background: #fff; padding: 16px; border-radius: 8px; margin-bottom: 20px; display: flex; gap: 12px; align-items: center; justify-content: space-between; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+        .card { background: white; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); padding: 24px; margin-bottom: 24px; }
+        table { border-collapse: collapse; width: 100%; }
+        th, td { border-bottom: 1px solid #eee; padding: 10px 14px; text-align: left; }
+        th { background: #f8f9fa; font-weight: 600; color: #555; }
+        tr:hover { background: #f9f9f9; }
+        .btn { padding: 7px 14px; border-radius: 4px; text-decoration: none; border: 1px solid transparent; cursor: pointer; display: inline-block; font-size: 0.9rem; }
+        .btn-primary { background: #0d6efd; color: white; }
+        .btn-danger { background: #dc3545; color: white; border: none; }
+        .btn-outline { border: 1px solid #ccc; color: #555; background: white; }
+        .btn-sm { padding: 4px 10px; font-size: 0.82rem; }
+        .badge-active { display: inline-block; padding: 2px 8px; border-radius: 10px; background: #d1e7dd; color: #0f5132; font-size: 0.82rem; }
+        .badge-inactive { display: inline-block; padding: 2px 8px; border-radius: 10px; background: #e2e3e5; color: #555; font-size: 0.82rem; }
+        .form-group { margin-bottom: 16px; }
+        label { display: block; font-weight: 600; margin-bottom: 4px; font-size: 0.9rem; }
+        input[type=text], input[type=password] { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 0.95rem; }
+        .eventos-check { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 4px; }
+        .eventos-check label { font-weight: normal; display: flex; align-items: center; gap: 6px; cursor: pointer; background: #f8f9fa; border: 1px solid #ddd; border-radius: 6px; padding: 6px 10px; }
+        .eventos-check input[type=checkbox] { accent-color: #0d6efd; }
+        .hint { font-size: 0.8rem; color: #777; margin-top: 3px; }
+        .alert { padding: 10px 14px; border-radius: 6px; margin-bottom: 16px; font-size: 0.9rem; }
+        .alert-success { background: #d1e7dd; color: #0f5132; }
+        .alert-error { background: #f8d7da; color: #842029; }
+    </style>
+</head>
+<body>
+    <div class="brand">
+        <div>
+            <h1>EncarreraOK <span style="font-weight:normal; font-size:1rem; color:#666;">Admin</span></h1>
+            <img src="/assets/logo-encarreraok.png" alt="EncarreraOK" style="max-width:160px; width:100%; height:auto;">
+        </div>
+        <div style="font-size: 0.9rem; color: #666;">Usuario: <strong>{{ username }}</strong></div>
+    </div>
+
+    <div class="toolbar">
+        <a href="/admin/home" class="btn btn-outline">← Volver al dashboard</a>
+        <h2 style="margin:0;">Gestión de Operadores</h2>
+        <span></span>
+    </div>
+
+    {% if msg %}
+    <div class="alert alert-success">{{ msg }}</div>
+    {% endif %}
+    {% if error %}
+    <div class="alert alert-error">{{ error }}</div>
+    {% endif %}
+
+    <!-- Formulario crear operador -->
+    <div class="card">
+        <h2>Nuevo operador</h2>
+        <form method="post" action="/admin/operadores/nuevo">
+            <div class="form-group">
+                <label for="username">Usuario</label>
+                <input type="text" id="username" name="username" required autocomplete="off" placeholder="Ej: operador_cordoba">
+                <div class="hint">Solo letras, números y guión bajo. No puede repetirse.</div>
+            </div>
+            <div class="form-group">
+                <label for="password">Contraseña</label>
+                <input type="password" id="password" name="password" required autocomplete="new-password" placeholder="Mínimo 8 caracteres">
+            </div>
+            <div class="form-group">
+                <label>Eventos asignados</label>
+                <div class="eventos-check">
+                    {% for ev in eventos %}
+                    <label>
+                        <input type="checkbox" name="evento_ids" value="{{ ev.id }}">
+                        {{ ev.nombre }} ({{ ev.fecha }})
+                    </label>
+                    {% else %}
+                    <span style="color:#888; font-size:0.9rem;">No hay eventos disponibles.</span>
+                    {% endfor %}
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary">Crear operador</button>
+        </form>
+    </div>
+
+    <!-- Listado de operadores -->
+    <div class="card">
+        <h2>Operadores existentes</h2>
+        {% if operadores %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Usuario</th>
+                    <th>Estado</th>
+                    <th>Eventos asignados</th>
+                    <th>Creado</th>
+                    <th>Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for op in operadores %}
+                <tr>
+                    <td><strong>{{ op.username }}</strong></td>
+                    <td>
+                        {% if op.activo %}
+                        <span class="badge-active">Activo</span>
+                        {% else %}
+                        <span class="badge-inactive">Inactivo</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% set ids = op.evento_ids.split(',') if op.evento_ids else [] %}
+                        {% for ev in eventos %}
+                            {% if ev.id|string in ids %}
+                            <span style="font-size:0.85rem; background:#e7f1ff; color:#0d4fa8; padding:2px 7px; border-radius:10px; margin-right:4px;">{{ ev.nombre }}</span>
+                            {% endif %}
+                        {% endfor %}
+                        {% if not op.evento_ids %}
+                        <span style="color:#999; font-size:0.85rem;">Sin eventos</span>
+                        {% endif %}
+                    </td>
+                    <td style="font-size:0.85rem; color:#666;">{{ op.created_at[:10] if op.created_at else '' }}</td>
+                    <td>
+                        <!-- Toggle activo/inactivo -->
+                        <form method="post" action="/admin/operadores/{{ op.id }}/toggle" style="display:inline;">
+                            <button type="submit" class="btn btn-outline btn-sm">
+                                {% if op.activo %}Desactivar{% else %}Activar{% endif %}
+                            </button>
+                        </form>
+                        <!-- Reasignar eventos -->
+                        <button type="button" class="btn btn-outline btn-sm"
+                            onclick="abrirEditar({{ op.id }}, '{{ op.username }}', '{{ op.evento_ids }}')">
+                            Eventos
+                        </button>
+                        <!-- Cambiar password -->
+                        <button type="button" class="btn btn-outline btn-sm"
+                            onclick="abrirPassword({{ op.id }}, '{{ op.username }}')">
+                            Contraseña
+                        </button>
+                        <!-- Copiar URL monitor -->
+                        <button type="button" class="btn btn-outline btn-sm"
+                            onclick="copiarURL({{ op.id }})">
+                            URL Monitor
+                        </button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p style="color:#888; text-align:center; padding: 20px 0;">No hay operadores creados todavía.</p>
+        {% endif %}
+    </div>
+
+    <!-- Modal editar eventos -->
+    <div id="modal-eventos" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:1000; align-items:center; justify-content:center;">
+        <div style="background:white; border-radius:8px; padding:24px; max-width:480px; width:90%; box-shadow:0 8px 32px rgba(0,0,0,0.2);">
+            <h3 style="margin:0 0 12px;" id="modal-eventos-titulo">Eventos para operador</h3>
+            <form method="post" id="form-eventos">
+                <div class="eventos-check" id="modal-eventos-lista">
+                    {% for ev in eventos %}
+                    <label>
+                        <input type="checkbox" name="evento_ids" value="{{ ev.id }}" class="ev-check">
+                        {{ ev.nombre }} ({{ ev.fecha }})
+                    </label>
+                    {% endfor %}
+                </div>
+                <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:16px;">
+                    <button type="button" class="btn btn-outline" onclick="cerrarModales()">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Guardar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal cambiar contraseña -->
+    <div id="modal-password" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:1000; align-items:center; justify-content:center;">
+        <div style="background:white; border-radius:8px; padding:24px; max-width:380px; width:90%; box-shadow:0 8px 32px rgba(0,0,0,0.2);">
+            <h3 style="margin:0 0 12px;" id="modal-pwd-titulo">Cambiar contraseña</h3>
+            <form method="post" id="form-password">
+                <div class="form-group">
+                    <label>Nueva contraseña</label>
+                    <input type="password" name="password" required autocomplete="new-password" placeholder="Mínimo 8 caracteres">
+                </div>
+                <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:8px;">
+                    <button type="button" class="btn btn-outline" onclick="cerrarModales()">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Guardar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal URL Monitor -->
+    <div id="modal-url" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:1000; align-items:center; justify-content:center;">
+        <div style="background:white; border-radius:8px; padding:24px; max-width:500px; width:90%; box-shadow:0 8px 32px rgba(0,0,0,0.2);">
+            <h3 style="margin:0 0 8px;">URL del Monitor</h3>
+            <p style="font-size:0.85rem; color:#555; margin:0 0 12px;">Seleccioná el evento para obtener la URL del monitor para este operador:</p>
+            <div id="url-lista" style="display:flex; flex-direction:column; gap:8px;"></div>
+            <div style="display:flex; justify-content:flex-end; margin-top:16px;">
+                <button type="button" class="btn btn-outline" onclick="cerrarModales()">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const eventosData = [
+            {% for ev in eventos %}
+            { id: {{ ev.id }}, nombre: "{{ ev.nombre|replace('"', '\\"') }} ({{ ev.fecha }})" }{% if not loop.last %},{% endif %}
+            {% endfor %}
+        ];
+
+        function cerrarModales() {
+            document.getElementById('modal-eventos').style.display = 'none';
+            document.getElementById('modal-password').style.display = 'none';
+            document.getElementById('modal-url').style.display = 'none';
+        }
+
+        function abrirEditar(opId, opUsername, eventoIdsStr) {
+            document.getElementById('modal-eventos-titulo').textContent = 'Eventos para: ' + opUsername;
+            document.getElementById('form-eventos').action = '/admin/operadores/' + opId + '/eventos';
+            const ids = eventoIdsStr ? eventoIdsStr.split(',').map(s => s.trim()) : [];
+            document.querySelectorAll('.ev-check').forEach(cb => {
+                cb.checked = ids.includes(cb.value);
+            });
+            document.getElementById('modal-eventos').style.display = 'flex';
+        }
+
+        function abrirPassword(opId, opUsername) {
+            document.getElementById('modal-pwd-titulo').textContent = 'Cambiar contraseña: ' + opUsername;
+            document.getElementById('form-password').action = '/admin/operadores/' + opId + '/password';
+            document.getElementById('modal-password').style.display = 'flex';
+        }
+
+        function copiarURL(opId) {
+            // Busca los evento_ids del operador en la tabla
+            const row = document.querySelector(`button[onclick="copiarURL(${opId})"]`).closest('tr');
+            const eventoIdsStr = row.querySelector('button[onclick^="abrirEditar"]').getAttribute('onclick');
+            const match = eventoIdsStr.match(/'([^']*)'\)$/);
+            const ids = match && match[1] ? match[1].split(',').map(s => s.trim()).filter(Boolean) : [];
+
+            const lista = document.getElementById('url-lista');
+            lista.innerHTML = '';
+            if (ids.length === 0) {
+                lista.innerHTML = '<p style="color:#888;">Este operador no tiene eventos asignados.</p>';
+            } else {
+                ids.forEach(id => {
+                    const ev = eventosData.find(e => String(e.id) === id);
+                    const nombre = ev ? ev.nombre : 'Evento ' + id;
+                    const url = window.location.origin + '/op/' + id + '/monitor';
+                    const div = document.createElement('div');
+                    div.style.cssText = 'background:#f8f9fa; border:1px solid #ddd; border-radius:6px; padding:8px 12px;';
+                    div.innerHTML = `<div style="font-size:0.82rem; color:#555; margin-bottom:4px;">${nombre}</div>
+                        <div style="display:flex; gap:8px; align-items:center;">
+                            <code style="flex:1; font-size:0.85rem; word-break:break-all;">${url}</code>
+                            <button class="btn btn-outline btn-sm" onclick="navigator.clipboard.writeText('${url}').then(()=>this.textContent='✓ Copiado!').catch(()=>{})">Copiar</button>
+                        </div>`;
+                    lista.appendChild(div);
+                });
+            }
+            document.getElementById('modal-url').style.display = 'flex';
+        }
+
+        // Cerrar modales al click fuera
+        ['modal-eventos','modal-password','modal-url'].forEach(id => {
+            document.getElementById(id).addEventListener('click', function(e) {
+                if (e.target === this) cerrarModales();
+            });
+        });
+    </script>
+</body>
+</html>

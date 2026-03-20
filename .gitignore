@@ -1,8 +1,38 @@
+# Python
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
-.env
+
+# Entornos virtuales
 venv/
+.env
+
+# Editores e IDEs
 .vscode/
 .DS_Store
+
+# Backups y archivos temporales
+*.bak
+*.bak_*
+*.backup
+*.backup_*
+*.backup_v*
+*.pre_*.bak
+*.prod_estable_*
+*.before_cursor.*
+
+# Bases de datos locales
+*.sqlite3
+*.db
+
+# Logs
+*.log
+logs/
+
+# Evidencias (archivos de usuarios — nunca al repo)
+evidencias/
+
+# Archivos de testing local
+test_local.sqlite3
+data/dev.sqlite3
