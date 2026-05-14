@@ -15,6 +15,7 @@ Endpoints:
 
 import csv
 import io
+import json
 import logging
 import os
 from datetime import datetime
@@ -34,6 +35,21 @@ router = APIRouter(prefix="/op")
 def _get_connection():
     from app.db.database import get_connection
     return get_connection()
+
+
+def _log_historial(conn, aceptacion_id: int, evento_id: int, accion: str, realizado_por: str, detalle: str = None):
+    """Inserta una entrada en aceptaciones_historial."""
+    from app.db.database import sql_placeholders
+    fecha = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            f"INSERT INTO aceptaciones_historial (aceptacion_id, evento_id, accion, realizado_por, fecha, detalle) "
+            f"VALUES ({sql_placeholders(6, conn)})",
+            (aceptacion_id, evento_id, accion, realizado_por, fecha, detalle),
+        )
+    except Exception as e:
+        app_logger.warning(f"No se pudo registrar historial: {e}")
 
 
 def _get_evento(evento_id: int) -> Optional[dict]:
@@ -114,7 +130,8 @@ def op_monitor(
                 a.fecha_hora, a.valido,
                 a.firma_path, a.doc_frente_path, a.doc_dorso_path,
                 a.audio_path, a.audio_exento, a.salud_doc_path,
-                a.motivo_anulacion, a.fecha_anulacion, a.anulado_por
+                a.motivo_anulacion, a.fecha_anulacion, a.anulado_por,
+                a.estado_revision, a.revisado_por, a.fecha_revision, a.motivo_rechazo
             FROM aceptaciones a
             WHERE {where_sql}
             ORDER BY a.fecha_hora DESC
@@ -342,6 +359,8 @@ def op_anular_aceptacion(
             """,
             (motivo.strip(), fecha_anulacion, op_username, aceptacion_id),
         )
+        _log_historial(conn, aceptacion_id, evento_id, "ANULADO", op_username,
+                       json.dumps({"motivo": motivo.strip()}, ensure_ascii=False))
         conn.commit()
         app_logger.info(
             f"[op:{op_username}] Aceptación anulada: id={aceptacion_id}, "
@@ -360,6 +379,62 @@ def op_anular_aceptacion(
             alert("Deslinde anulado correctamente.");
             window.location.href = "/op/{evento_id}/monitor";
         </script>
+    """)
+
+
+@router.post("/{evento_id}/aceptaciones/{aceptacion_id}/revisar", response_class=HTMLResponse)
+def op_revisar_aceptacion(
+    evento_id: int,
+    aceptacion_id: int,
+    decision: str = Form(...),
+    motivo: str = Form(""),
+    operador: dict = Depends(get_current_operator),
+) -> HTMLResponse:
+    """Marca una aceptación como ACEPTADO o RECHAZADO desde el panel de operador."""
+    check_evento_access(operador, evento_id)
+
+    decision = decision.upper()
+    if decision not in ("ACEPTADO", "RECHAZADO"):
+        raise HTTPException(status_code=400, detail="Decisión inválida.")
+    if decision == "RECHAZADO" and not motivo.strip():
+        raise HTTPException(status_code=400, detail="El motivo es obligatorio al rechazar.")
+
+    aceptacion = _get_aceptacion(aceptacion_id)
+    if not aceptacion:
+        raise HTTPException(status_code=404, detail="Aceptación no encontrada")
+    if aceptacion["evento_id"] != evento_id:
+        raise HTTPException(status_code=403, detail="La aceptación no pertenece a este evento")
+    if not aceptacion.get("valido", 1):
+        raise HTTPException(status_code=400, detail="No se puede revisar una aceptación anulada.")
+
+    from app.db.database import sql_placeholders
+    op_username = operador["username"]
+    fecha_revision = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+    motivo_rechazo = motivo.strip() if decision == "RECHAZADO" else None
+
+    conn = _get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            f"UPDATE aceptaciones SET estado_revision = {sql_placeholders(1, conn)}, "
+            f"revisado_por = {sql_placeholders(1, conn)}, "
+            f"fecha_revision = {sql_placeholders(1, conn)}, "
+            f"motivo_rechazo = {sql_placeholders(1, conn)} "
+            f"WHERE id = {sql_placeholders(1, conn)}",
+            (decision, op_username, fecha_revision, motivo_rechazo, aceptacion_id),
+        )
+        _log_historial(conn, aceptacion_id, evento_id, f"REVISION_{decision}", op_username,
+                       json.dumps({"decision": decision, "motivo": motivo_rechazo}, ensure_ascii=False))
+        conn.commit()
+        app_logger.info(f"[op:{op_username}] Revisión id={aceptacion_id}, decision={decision}")
+    except Exception as e:
+        app_logger.error(f"[op:{op_username}] Error revisando aceptación {aceptacion_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error al revisar: {e}")
+    finally:
+        conn.close()
+
+    return HTMLResponse(content=f"""
+        <script>window.location.href = "/op/{evento_id}/monitor";</script>
     """)
 
 
@@ -388,7 +463,8 @@ def op_exportar_csv(
                 a.documento, a.nombre_participante, a.fecha_hora,
                 a.valido, a.firma_path, a.doc_frente_path, a.doc_dorso_path,
                 a.audio_path, a.audio_exento, a.salud_doc_path,
-                a.firma_asistida, a.motivo_anulacion, a.fecha_anulacion, a.anulado_por
+                a.firma_asistida, a.motivo_anulacion, a.fecha_anulacion, a.anulado_por,
+                a.estado_revision, a.revisado_por, a.fecha_revision, a.motivo_rechazo
             FROM aceptaciones a
             WHERE a.evento_id = %s
             ORDER BY a.fecha_hora ASC
@@ -408,6 +484,7 @@ def op_exportar_csv(
     writer = csv.writer(output, delimiter=";", quoting=csv.QUOTE_ALL)
     writer.writerow([
         "cedula", "nombre", "fecha_hora_registro", "estado",
+        "revision", "motivo_rechazo", "revisado_por", "fecha_revision",
         "tiene_firma", "tiene_doc_frente", "tiene_doc_dorso",
         "tiene_audio", "audio_exento", "tiene_salud", "firma_asistida",
         "motivo_anulacion", "fecha_anulacion", "anulado_por",
@@ -433,6 +510,10 @@ def op_exportar_csv(
             a.get("nombre_participante", ""),
             (a.get("fecha_hora") or "").replace("T", " ").replace("Z", ""),
             estado,
+            a.get("estado_revision") or "SIN REVISAR",
+            a.get("motivo_rechazo") or "",
+            a.get("revisado_por") or "",
+            (a.get("fecha_revision") or "").replace("T", " ").replace("Z", ""),
             "SI" if a.get("firma_path") else "NO",
             "SI" if a.get("doc_frente_path") else "NO",
             "SI" if a.get("doc_dorso_path") else "NO",

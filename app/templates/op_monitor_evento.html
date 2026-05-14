@@ -24,6 +24,9 @@
         .ok { background: #d1e7dd; color: #0f5132; }
         .inc { background: #fff3cd; color: #664d03; }
         .ann { background: #f8d7da; color: #842029; }
+        .rev-aceptado { background: #d1e7dd; color: #0a3622; }
+        .rev-rechazado { background: #f8d7da; color: #58151c; }
+        .rev-pendiente { background: #e9ecef; color: #495057; }
         .timestamp { color: #666; font-size: 0.88rem; }
         .motivo { font-size: 0.78rem; color: #842029; margin-top: 2px; }
         .btn { text-decoration: none; padding: 6px 12px; border-radius: 4px; font-size: 0.9rem; display: inline-block; cursor: pointer; border: none; }
@@ -76,6 +79,7 @@
                         <th>Nombre</th>
                         <th>Documento</th>
                         <th>Estado</th>
+                        <th>Revisión</th>
                         <th>Hora</th>
                         <th></th>
                     </tr>
@@ -106,6 +110,20 @@
                             <span class="badge inc">🟡 INCOMPLETO</span>
                             {% endif %}
                         </td>
+                        <td>
+                            {% if es_anulada %}
+                            <span class="badge rev-pendiente">—</span>
+                            {% elif a.estado_revision == 'ACEPTADO' %}
+                            <span class="badge rev-aceptado">✅ ACEPTADO</span>
+                            <div class="motivo" style="color:#0a3622;">{{ a.revisado_por }}{% if a.fecha_revision %} · {{ a.fecha_revision|replace("T"," ")|replace("Z","") }}{% endif %}</div>
+                            {% elif a.estado_revision == 'RECHAZADO' %}
+                            <span class="badge rev-rechazado">❌ RECHAZADO</span>
+                            {% if a.motivo_rechazo %}<div class="motivo">{{ a.motivo_rechazo }}</div>{% endif %}
+                            <div class="motivo">{{ a.revisado_por }}{% if a.fecha_revision %} · {{ a.fecha_revision|replace("T"," ")|replace("Z","") }}{% endif %}</div>
+                            {% else %}
+                            <span class="badge rev-pendiente">⏳ Sin revisar</span>
+                            {% endif %}
+                        </td>
                         <td class="timestamp">
                             {{ a.fecha_hora|replace("T", " ")|replace("Z", "") }}
                             {% if es_anulada and a.fecha_anulacion %}
@@ -116,9 +134,17 @@
                         <td style="white-space:nowrap;">
                             <a href="/op/{{ evento.id }}/preview/{{ a.id }}" class="btn btn-outline btn-sm">Ver</a>
                             {% if not es_anulada %}
-                            <button type="button" class="btn btn-danger btn-sm"
+                            <button type="button" class="btn btn-success btn-sm" style="margin-left:4px;"
+                                onclick="abrirRevisar({{ a.id }}, '{{ a.nombre_participante|replace("'", "\\'") }}', 'ACEPTADO')">
+                                ✅
+                            </button>
+                            <button type="button" class="btn btn-danger btn-sm" style="margin-left:4px;"
+                                onclick="abrirRevisar({{ a.id }}, '{{ a.nombre_participante|replace("'", "\\'") }}', 'RECHAZADO')">
+                                ❌
+                            </button>
+                            <button type="button" class="btn btn-outline btn-sm" style="margin-left:4px;"
                                 onclick="abrirAnular({{ a.id }}, '{{ a.nombre_participante|replace("'", "\\'") }}', '{{ a.documento }}')">
-                                Anular
+                                🚫
                             </button>
                             {% endif %}
                         </td>
@@ -172,6 +198,25 @@
         </div>
     </div>
 
+    <!-- Modal Revisar -->
+    <div class="modal-backdrop" id="modal-revisar">
+        <div class="modal-box">
+            <h3 id="revisar-titulo"></h3>
+            <p id="revisar-desc"></p>
+            <form method="post" id="form-revisar">
+                <input type="hidden" name="decision" id="revisar-decision">
+                <div id="revisar-motivo-wrapper">
+                    <label style="font-size:0.88rem; font-weight:600; display:block; margin-bottom:4px;">Motivo del rechazo <span style="color:red">*</span></label>
+                    <textarea name="motivo" id="revisar-motivo" placeholder="Indicá el motivo del rechazo..." maxlength="300"></textarea>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-outline" onclick="cerrarRevisar()">Cancelar</button>
+                    <button type="submit" id="revisar-btn-confirm" class="btn btn-success">Confirmar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <script>
         const EVENTO_ID = {{ evento.id }};
 
@@ -187,8 +232,32 @@
             document.getElementById('modal-anular').style.display = 'none';
         }
 
+        function abrirRevisar(aceptacionId, nombre, decision) {
+            const esRechazo = decision === 'RECHAZADO';
+            document.getElementById('revisar-titulo').textContent = esRechazo ? '❌ Rechazar deslinde' : '✅ Aceptar deslinde';
+            document.getElementById('revisar-titulo').style.color = esRechazo ? '#842029' : '#0f5132';
+            document.getElementById('revisar-desc').textContent = (esRechazo ? 'Rechazando' : 'Aceptando') + ' deslinde de ' + nombre;
+            document.getElementById('revisar-decision').value = decision;
+            document.getElementById('form-revisar').action = '/op/' + EVENTO_ID + '/aceptaciones/' + aceptacionId + '/revisar';
+            document.getElementById('revisar-motivo').value = '';
+            document.getElementById('revisar-motivo').required = esRechazo;
+            document.getElementById('revisar-motivo-wrapper').style.display = esRechazo ? 'block' : 'none';
+            document.getElementById('revisar-btn-confirm').className = 'btn ' + (esRechazo ? 'btn-danger' : 'btn-success');
+            document.getElementById('revisar-btn-confirm').textContent = esRechazo ? 'Confirmar rechazo' : 'Confirmar aceptación';
+            document.getElementById('modal-revisar').style.display = 'flex';
+            if (esRechazo) setTimeout(() => document.getElementById('revisar-motivo').focus(), 80);
+        }
+
+        function cerrarRevisar() {
+            document.getElementById('modal-revisar').style.display = 'none';
+        }
+
         document.getElementById('modal-anular').addEventListener('click', function(e) {
             if (e.target === this) cerrarAnular();
+        });
+
+        document.getElementById('modal-revisar').addEventListener('click', function(e) {
+            if (e.target === this) cerrarRevisar();
         });
 
         const searchBox = document.querySelector('input[name="q"]');

@@ -216,19 +216,24 @@ def insertar_aceptacion(
     """Inserta una aceptación y devuelve el ID creado."""
     conn = _get_connection()
     try:
+        from app.db.database import sql_placeholders, is_postgres_connection
         cur = conn.cursor()
-        cur.execute(
-            """
-            INSERT INTO aceptaciones (
-                evento_id, nombre_participante, documento, fecha_hora, ip, user_agent, deslinde_hash_sha256, firma_path, doc_frente_path, doc_dorso_path, audio_path, salud_doc_path, salud_doc_tipo, audio_exento, firma_asistida, pdf_token, documento_norm, deslinde_version
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            RETURNING id
-            """,
-            (evento_id, nombre_participante, documento, fecha_hora, ip, user_agent, deslinde_hash_sha256, firma_path, doc_frente_path, doc_dorso_path, audio_path, salud_doc_path, salud_doc_tipo, audio_exento, firma_asistida, pdf_token, documento_norm, deslinde_version),
-        )
-        row = cur.fetchone()
+        ph = sql_placeholders(18, conn)
+        if is_postgres_connection(conn):
+            cur.execute(
+                f"INSERT INTO aceptaciones (evento_id, nombre_participante, documento, fecha_hora, ip, user_agent, deslinde_hash_sha256, firma_path, doc_frente_path, doc_dorso_path, audio_path, salud_doc_path, salud_doc_tipo, audio_exento, firma_asistida, pdf_token, documento_norm, deslinde_version) VALUES ({ph}) RETURNING id",
+                (evento_id, nombre_participante, documento, fecha_hora, ip, user_agent, deslinde_hash_sha256, firma_path, doc_frente_path, doc_dorso_path, audio_path, salud_doc_path, salud_doc_tipo, audio_exento, firma_asistida, pdf_token, documento_norm, deslinde_version),
+            )
+            row = cur.fetchone()
+            new_id = row['id'] if row else None
+        else:
+            cur.execute(
+                f"INSERT INTO aceptaciones (evento_id, nombre_participante, documento, fecha_hora, ip, user_agent, deslinde_hash_sha256, firma_path, doc_frente_path, doc_dorso_path, audio_path, salud_doc_path, salud_doc_tipo, audio_exento, firma_asistida, pdf_token, documento_norm, deslinde_version) VALUES ({ph})",
+                (evento_id, nombre_participante, documento, fecha_hora, ip, user_agent, deslinde_hash_sha256, firma_path, doc_frente_path, doc_dorso_path, audio_path, salud_doc_path, salud_doc_tipo, audio_exento, firma_asistida, pdf_token, documento_norm, deslinde_version),
+            )
+            new_id = cur.lastrowid
         conn.commit()
-        return row['id'] if row else None
+        return new_id
     finally:
         conn.close()
 

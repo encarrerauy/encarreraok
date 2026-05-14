@@ -25,20 +25,25 @@
         .status-ok { background: #d1e7dd; color: #0f5132; }
         .status-incomplete { background: #fff3cd; color: #664d03; }
         .status-anulada { background: #f8d7da; color: #842029; }
+        .rev-aceptado { background: #d1e7dd; color: #0a3622; }
+        .rev-rechazado { background: #f8d7da; color: #58151c; }
+        .rev-pendiente { background: #e9ecef; color: #495057; }
         .btn { text-decoration: none; padding: 6px 12px; border-radius: 4px; font-size: 0.9rem; display: inline-block; cursor: pointer; border: none; }
         .btn-primary { background: #0d6efd; color: white; }
+        .btn-success { background: #198754; color: white; }
         .btn-outline { border: 1px solid #ccc; color: #555; background: white; }
         .btn-danger { background: #dc3545; color: white; }
         .btn-danger:hover { background: #bb2d3b; }
+        .btn-sm { padding: 4px 8px; font-size: 0.8rem; }
         .timestamp { color: #666; font-size: 0.9rem; }
         .icon { font-size: 1.1em; }
         .motivo-anulacion { font-size: 0.8rem; color: #842029; margin-top: 2px; }
 
-        /* Modal anular */
+        /* Modales */
         .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center; }
         .modal-overlay.active { display: flex; }
         .modal-box { background: white; border-radius: 8px; padding: 24px; max-width: 420px; width: 90%; box-shadow: 0 8px 32px rgba(0,0,0,0.2); }
-        .modal-box h3 { margin: 0 0 8px; font-size: 1.1rem; color: #842029; }
+        .modal-box h3 { margin: 0 0 8px; font-size: 1.1rem; }
         .modal-box p { margin: 0 0 16px; font-size: 0.9rem; color: #555; }
         .modal-box textarea { width: 100%; box-sizing: border-box; padding: 8px; border: 1px solid #ccc; border-radius: 4px; resize: vertical; min-height: 80px; font-size: 0.95rem; }
         .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
@@ -83,6 +88,7 @@
                         <th>Nombre</th>
                         <th>Documento</th>
                         <th>Estado</th>
+                        <th>Revisión</th>
                         <th>Hora</th>
                         <th>Acciones</th>
                     </tr>
@@ -113,25 +119,45 @@
                             <span class="status-badge status-incomplete"><span class="icon">🟡</span> INCOMPLETO</span>
                             {% endif %}
                         </td>
+                        <td>
+                            {% if es_anulada %}
+                            <span class="status-badge rev-pendiente">—</span>
+                            {% elif a.estado_revision == 'ACEPTADO' %}
+                            <span class="status-badge rev-aceptado">✅ ACEPTADO</span>
+                            <div class="motivo-anulacion" style="color:#0a3622;">{{ a.revisado_por }}{% if a.fecha_revision %} · {{ a.fecha_revision|replace("T"," ")|replace("Z","") }}{% endif %}</div>
+                            {% elif a.estado_revision == 'RECHAZADO' %}
+                            <span class="status-badge rev-rechazado">❌ RECHAZADO</span>
+                            {% if a.motivo_rechazo %}<div class="motivo-anulacion">{{ a.motivo_rechazo }}</div>{% endif %}
+                            <div class="motivo-anulacion">{{ a.revisado_por }}{% if a.fecha_revision %} · {{ a.fecha_revision|replace("T"," ")|replace("Z","") }}{% endif %}</div>
+                            {% else %}
+                            <span class="status-badge rev-pendiente">⏳ Sin revisar</span>
+                            {% endif %}
+                        </td>
                         <td class="timestamp">
                             {{ a.fecha_hora|replace("T", " ")|replace("Z", "") }}
                             {% if es_anulada and a.fecha_anulacion %}
                             <div class="motivo-anulacion">Anulado: {{ a.fecha_anulacion|replace("T", " ")|replace("Z", "") }}{% if a.anulado_por %} por {{ a.anulado_por }}{% endif %}</div>
                             {% endif %}
                         </td>
-                        <td>
+                        <td style="white-space: nowrap;">
                             {% if not es_anulada %}
-                            <a href="/admin/evento/{{ evento.id }}/preview/{{ a.id }}" class="btn {{ 'btn-primary' if not status_ok else 'btn-outline' }}">
-                                {{ '🔍 Verificar' if not status_ok else '👁️ Ver' }}
+                            <a href="/admin/evento/{{ evento.id }}/preview/{{ a.id }}" class="btn btn-sm {{ 'btn-primary' if not status_ok else 'btn-outline' }}">
+                                {{ '🔍 Ver' if not status_ok else '👁️ Ver' }}
                             </a>
-                            <button type="button"
-                                class="btn btn-danger"
-                                style="margin-left: 6px;"
+                            <button type="button" class="btn btn-sm btn-success" style="margin-left:4px;"
+                                onclick="abrirRevisar({{ a.id }}, '{{ a.nombre_participante|replace("'", "\\'") }}', 'ACEPTADO')">
+                                ✅
+                            </button>
+                            <button type="button" class="btn btn-sm btn-danger" style="margin-left:4px;"
+                                onclick="abrirRevisar({{ a.id }}, '{{ a.nombre_participante|replace("'", "\\'") }}', 'RECHAZADO')">
+                                ❌
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline" style="margin-left:4px;"
                                 onclick="abrirAnular({{ a.id }}, '{{ a.nombre_participante|replace("'", "\\'") }}', '{{ a.documento }}')">
-                                🚫 Anular
+                                🚫
                             </button>
                             {% else %}
-                            <a href="/admin/evento/{{ evento.id }}/preview/{{ a.id }}" class="btn btn-outline">
+                            <a href="/admin/evento/{{ evento.id }}/preview/{{ a.id }}" class="btn btn-sm btn-outline">
                                 👁️ Ver
                             </a>
                             {% endif %}
@@ -174,14 +200,33 @@
     <!-- Modal anular -->
     <div class="modal-overlay" id="anular-modal">
         <div class="modal-box">
-            <h3>🚫 Anular deslinde</h3>
-            <p id="anular-desc">Vas a anular el deslinde de <strong id="anular-nombre"></strong> (doc: <span id="anular-doc"></span>). Esta acción es irreversible. El registro quedará marcado como inválido.</p>
+            <h3 style="color:#842029;">🚫 Anular deslinde</h3>
+            <p id="anular-desc">Vas a anular el deslinde de <strong id="anular-nombre"></strong> (doc: <span id="anular-doc"></span>). Esta acción es irreversible.</p>
             <form id="anular-form" method="post">
                 <label style="font-size: 0.9rem; font-weight: 600; display: block; margin-bottom: 4px;">Motivo de anulación <span style="color: #dc3545;">*</span></label>
                 <textarea name="motivo" id="anular-motivo" placeholder="Ej: Documento incorrecto, participante no autorizado..." required></textarea>
                 <div class="modal-actions">
                     <button type="button" class="btn btn-outline" onclick="cerrarAnular()">Cancelar</button>
                     <button type="submit" class="btn btn-danger">Confirmar anulación</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal revisar -->
+    <div class="modal-overlay" id="revisar-modal">
+        <div class="modal-box">
+            <h3 id="revisar-titulo">Revisar deslinde</h3>
+            <p id="revisar-desc"></p>
+            <form id="revisar-form" method="post">
+                <input type="hidden" name="decision" id="revisar-decision">
+                <div id="revisar-motivo-wrapper">
+                    <label style="font-size: 0.9rem; font-weight: 600; display: block; margin-bottom: 4px;">Motivo del rechazo <span style="color: #dc3545;">*</span></label>
+                    <textarea name="motivo" id="revisar-motivo" placeholder="Indicá el motivo del rechazo..." required></textarea>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-outline" onclick="cerrarRevisar()">Cancelar</button>
+                    <button type="submit" id="revisar-btn-confirm" class="btn btn-success">Confirmar</button>
                 </div>
             </form>
         </div>
@@ -215,7 +260,30 @@
             document.getElementById('anular-modal').classList.remove('active');
         }
 
-        // Cerrar al hacer click fuera del box
+        function abrirRevisar(aceptacionId, nombre, decision) {
+            const esRechazo = decision === 'RECHAZADO';
+            document.getElementById('revisar-titulo').textContent = esRechazo ? '❌ Rechazar deslinde' : '✅ Aceptar deslinde';
+            document.getElementById('revisar-titulo').style.color = esRechazo ? '#842029' : '#0f5132';
+            document.getElementById('revisar-desc').textContent = (esRechazo ? 'Vas a rechazar' : 'Vas a aceptar') + ' el deslinde de ' + nombre + '.';
+            document.getElementById('revisar-decision').value = decision;
+            document.getElementById('revisar-form').action = '/admin/aceptaciones/' + aceptacionId + '/revisar';
+            document.getElementById('revisar-motivo').value = '';
+            document.getElementById('revisar-motivo-wrapper').style.display = esRechazo ? 'block' : 'none';
+            document.getElementById('revisar-motivo').required = esRechazo;
+            document.getElementById('revisar-btn-confirm').className = 'btn ' + (esRechazo ? 'btn-danger' : 'btn-success');
+            document.getElementById('revisar-btn-confirm').textContent = esRechazo ? 'Confirmar rechazo' : 'Confirmar aceptación';
+            document.getElementById('revisar-modal').classList.add('active');
+            if (esRechazo) setTimeout(() => document.getElementById('revisar-motivo').focus(), 80);
+        }
+
+        function cerrarRevisar() {
+            document.getElementById('revisar-modal').classList.remove('active');
+        }
+
+        document.getElementById('revisar-modal').addEventListener('click', function(e) {
+            if (e.target === this) cerrarRevisar();
+        });
+
         document.getElementById('anular-modal').addEventListener('click', function(e) {
             if (e.target === this) cerrarAnular();
         });

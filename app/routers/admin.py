@@ -68,6 +68,21 @@ def _get_connection():
     return _db_get_connection()
 
 
+def _log_historial(conn, aceptacion_id: int, evento_id: int, accion: str, realizado_por: str, detalle: str = None):
+    """Inserta una entrada en aceptaciones_historial."""
+    from app.db.database import sql_placeholders
+    fecha = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            f"INSERT INTO aceptaciones_historial (aceptacion_id, evento_id, accion, realizado_por, fecha, detalle) "
+            f"VALUES ({sql_placeholders(6, conn)})",
+            (aceptacion_id, evento_id, accion, realizado_por, fecha, detalle),
+        )
+    except Exception as e:
+        app_logger.warning(f"No se pudo registrar historial: {e}")
+
+
 def get_evento(evento_id: int) -> Optional[Dict[str, Any]]:
     """Obtiene un evento por id."""
     conn = _get_connection()
@@ -107,19 +122,23 @@ def crear_evento(
     """Crea un nuevo evento y devuelve su ID."""
     conn = _get_connection()
     try:
+        from app.db.database import sql_placeholders, is_postgres_connection
         cur = conn.cursor()
-        cur.execute(
-            """
-            INSERT INTO eventos (
-                nombre, fecha, organizador, activo, req_firma, req_documento, req_salud, req_audio, deslinde_version, friendly_intro
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            RETURNING id
-            """,
-            (nombre, fecha, organizador, activo, req_firma, req_documento, req_salud, req_audio, deslinde_version, friendly_intro)
-        )
-        row = cur.fetchone()
+        ph = sql_placeholders(10, conn)
+        if is_postgres_connection(conn):
+            cur.execute(
+                f"INSERT INTO eventos (nombre, fecha, organizador, activo, req_firma, req_documento, req_salud, req_audio, deslinde_version, friendly_intro) VALUES ({ph}) RETURNING id",
+                (nombre, fecha, organizador, activo, req_firma, req_documento, req_salud, req_audio, deslinde_version, friendly_intro)
+            )
+            row = cur.fetchone()
+            evento_id = row['id'] if row else None
+        else:
+            cur.execute(
+                f"INSERT INTO eventos (nombre, fecha, organizador, activo, req_firma, req_documento, req_salud, req_audio, deslinde_version, friendly_intro) VALUES ({ph})",
+                (nombre, fecha, organizador, activo, req_firma, req_documento, req_salud, req_audio, deslinde_version, friendly_intro)
+            )
+            evento_id = cur.lastrowid
         conn.commit()
-        evento_id = row['id'] if row else None
         app_logger.info(f"Evento creado: id={evento_id}, nombre={nombre}")
         return evento_id
     finally:
@@ -142,13 +161,13 @@ def actualizar_evento(
     """Actualiza un evento existente."""
     conn = _get_connection()
     try:
+        from app.db.database import sql_placeholders
         cur = conn.cursor()
+        ph = sql_placeholders(1, conn)
         cur.execute(
-            """
-            UPDATE eventos
-            SET nombre=%s, fecha=%s, organizador=%s, activo=%s, req_firma=%s, req_documento=%s, req_salud=%s, req_audio=%s, deslinde_version=%s, friendly_intro=%s
-            WHERE id=%s
-            """,
+            f"UPDATE eventos SET nombre={ph}, fecha={ph}, organizador={ph}, activo={ph}, "
+            f"req_firma={ph}, req_documento={ph}, req_salud={ph}, req_audio={ph}, "
+            f"deslinde_version={ph}, friendly_intro={ph} WHERE id={ph}",
             (nombre, fecha, organizador, activo, req_firma, req_documento, req_salud, req_audio, deslinde_version, friendly_intro, evento_id)
         )
         conn.commit()
@@ -796,7 +815,11 @@ def admin_exportar_csv(
                 a.motivo_anulacion,
                 a.fecha_anulacion,
                 a.anulado_por,
-                a.ip
+                a.ip,
+                a.estado_revision,
+                a.revisado_por,
+                a.fecha_revision,
+                a.motivo_rechazo
             FROM aceptaciones a
             WHERE a.evento_id = %s
             ORDER BY a.fecha_hora ASC
@@ -820,6 +843,10 @@ def admin_exportar_csv(
         "nombre",
         "fecha_hora_registro",
         "estado",
+        "revision",
+        "motivo_rechazo",
+        "revisado_por",
+        "fecha_revision",
         "tiene_firma",
         "tiene_doc_frente",
         "tiene_doc_dorso",
@@ -853,6 +880,10 @@ def admin_exportar_csv(
             a.get("nombre_participante", ""),
             (a.get("fecha_hora") or "").replace("T", " ").replace("Z", ""),
             estado,
+            a.get("estado_revision") or "SIN REVISAR",
+            a.get("motivo_rechazo") or "",
+            a.get("revisado_por") or "",
+            (a.get("fecha_revision") or "").replace("T", " ").replace("Z", ""),
             "SI" if a.get("firma_path") else "NO",
             "SI" if a.get("doc_frente_path") else "NO",
             "SI" if a.get("doc_dorso_path") else "NO",
@@ -1054,6 +1085,8 @@ def admin_anular_aceptacion(
             """,
             (motivo.strip(), fecha_anulacion, username, aceptacion_id),
         )
+        _log_historial(conn, aceptacion_id, aceptacion["evento_id"], "ANULADO", username,
+                       json.dumps({"motivo": motivo.strip()}, ensure_ascii=False))
         conn.commit()
         app_logger.info(
             f"Aceptación anulada: id={aceptacion_id}, evento_id={aceptacion['evento_id']}, "
@@ -1070,6 +1103,70 @@ def admin_anular_aceptacion(
         content=f"""
         <script>
             alert("Aceptación anulada correctamente.");
+            window.location.href = "/admin/evento/{evento_id}/monitor";
+        </script>
+        """
+    )
+
+
+@router.post("/aceptaciones/{aceptacion_id}/revisar", response_class=HTMLResponse)
+def admin_revisar_aceptacion(
+    aceptacion_id: int,
+    decision: str = Form(...),
+    motivo: str = Form(""),
+    username: str = Depends(get_current_username),
+) -> HTMLResponse:
+    """
+    Marca una aceptación como ACEPTADO o RECHAZADO.
+    El motivo es obligatorio cuando se rechaza.
+    Registra la acción en aceptaciones_historial.
+    """
+    decision = decision.upper()
+    if decision not in ("ACEPTADO", "RECHAZADO"):
+        raise HTTPException(status_code=400, detail="Decisión inválida. Use ACEPTADO o RECHAZADO.")
+
+    if decision == "RECHAZADO" and not motivo.strip():
+        raise HTTPException(status_code=400, detail="El motivo es obligatorio al rechazar.")
+
+    aceptacion = get_aceptacion_detalle(aceptacion_id)
+    if not aceptacion:
+        raise HTTPException(status_code=404, detail="Aceptación no encontrada")
+
+    if not aceptacion.get("valido", 1):
+        raise HTTPException(status_code=400, detail="No se puede revisar una aceptación anulada.")
+
+    from app.db.database import sql_placeholders
+    fecha_revision = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+    motivo_rechazo = motivo.strip() if decision == "RECHAZADO" else None
+
+    conn = _get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            f"UPDATE aceptaciones SET estado_revision = {sql_placeholders(1, conn)}, "
+            f"revisado_por = {sql_placeholders(1, conn)}, "
+            f"fecha_revision = {sql_placeholders(1, conn)}, "
+            f"motivo_rechazo = {sql_placeholders(1, conn)} "
+            f"WHERE id = {sql_placeholders(1, conn)}",
+            (decision, username, fecha_revision, motivo_rechazo, aceptacion_id),
+        )
+        detalle = json.dumps({"decision": decision, "motivo": motivo_rechazo}, ensure_ascii=False)
+        _log_historial(conn, aceptacion_id, aceptacion["evento_id"], f"REVISION_{decision}", username, detalle)
+        conn.commit()
+        app_logger.info(
+            f"Revisión registrada: id={aceptacion_id}, decision={decision}, "
+            f"doc={aceptacion['documento']}, por={username}"
+        )
+    except Exception as e:
+        app_logger.error(f"Error revisando aceptación {aceptacion_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error al revisar: {e}")
+    finally:
+        conn.close()
+
+    evento_id = aceptacion["evento_id"]
+    return HTMLResponse(
+        content=f"""
+        <script>
             window.location.href = "/admin/evento/{evento_id}/monitor";
         </script>
         """
@@ -1166,7 +1263,11 @@ def admin_monitor_evento(
                 a.valido,
                 a.motivo_anulacion,
                 a.fecha_anulacion,
-                a.anulado_por
+                a.anulado_por,
+                a.estado_revision,
+                a.revisado_por,
+                a.fecha_revision,
+                a.motivo_rechazo
             FROM aceptaciones a
             JOIN eventos e ON e.id = a.evento_id
             WHERE {where_sql}

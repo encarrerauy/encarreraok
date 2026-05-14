@@ -46,6 +46,64 @@ def sql_placeholders(count: int, conn: Any = None) -> str:
     p = sql_param(conn)
     return ", ".join([p] * count)
 
+class _SQLiteCompatCursor:
+    """Cursor SQLite que acepta %s como placeholder (igual que PostgreSQL)."""
+    def __init__(self, cursor):
+        self._cur = cursor
+
+    def execute(self, sql, params=None):
+        sql = sql.replace("%s", "?")
+        if params is None:
+            return self._cur.execute(sql)
+        return self._cur.execute(sql, params)
+
+    def executemany(self, sql, seq):
+        sql = sql.replace("%s", "?")
+        return self._cur.executemany(sql, seq)
+
+    def fetchone(self):
+        return self._cur.fetchone()
+
+    def fetchall(self):
+        return self._cur.fetchall()
+
+    @property
+    def lastrowid(self):
+        return self._cur.lastrowid
+
+    @property
+    def rowcount(self):
+        return self._cur.rowcount
+
+    def __iter__(self):
+        return iter(self._cur)
+
+
+class _SQLiteCompatConnection:
+    """Conexión SQLite que devuelve cursores compatibles con %s."""
+    def __init__(self, conn):
+        self._conn = conn
+        self.row_factory = conn.row_factory
+
+    def cursor(self):
+        return _SQLiteCompatCursor(self._conn.cursor())
+
+    def commit(self):
+        return self._conn.commit()
+
+    def rollback(self):
+        return self._conn.rollback()
+
+    def close(self):
+        return self._conn.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self._conn.__exit__(*args)
+
+
 def get_connection() -> Union[sqlite3.Connection, Any]:
     """
     Crea una conexión a la base de datos.
@@ -55,21 +113,19 @@ def get_connection() -> Union[sqlite3.Connection, Any]:
     if is_postgres_configured():
         if not PSYCOPG_AVAILABLE:
             raise ImportError("DATABASE_URL detectada pero psycopg no está instalado.")
-        
+
         try:
-            # Conexión PostgreSQL usando psycopg 3
-            # row_factory=dict_row para compatibilidad con el código existente que espera dict-like access
             conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
             return conn
         except Exception as e:
             logger.error(f"Error conectando a PostgreSQL: {e}")
             raise
 
-    # 2. Fallback a SQLite (comportamiento actual)
+    # 2. Fallback a SQLite — envuelto para aceptar %s como placeholder
     try:
         conn = sqlite3.connect(DB_PATH, check_same_thread=False)
         conn.row_factory = sqlite3.Row
-        return conn
+        return _SQLiteCompatConnection(conn)
     except Exception as e:
         logger.error(f"Error conectando a SQLite en {DB_PATH}: {e}")
         raise

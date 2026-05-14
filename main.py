@@ -160,6 +160,17 @@ def ensure_schema_migrations(conn: sqlite3.Connection) -> None:
             cur.execute(f"ALTER TABLE aceptaciones ADD COLUMN deslinde_version TEXT DEFAULT '{DEFAULT_DESLINDE_VERSION}'")
             app_logger.info("Migración aplicada: columna deslinde_version agregada")
 
+        # Fase 1: columnas de revisión (ACEPTADO / RECHAZADO)
+        for col, definition in [
+            ("estado_revision", "TEXT"),
+            ("revisado_por",    "TEXT"),
+            ("fecha_revision",  "TEXT"),
+            ("motivo_rechazo",  "TEXT"),
+        ]:
+            if col not in columns:
+                cur.execute(f"ALTER TABLE aceptaciones ADD COLUMN {col} {definition}")
+                app_logger.info(f"Migración aplicada: columna {col} agregada a aceptaciones")
+
     except sqlite3.OperationalError as e:
         app_logger.error(f"Error en migración de esquema: {e}")
 
@@ -398,6 +409,25 @@ def init_db() -> None:
         try:
             cur.execute("CREATE INDEX IF NOT EXISTS idx_aceptaciones_evento ON aceptaciones(evento_id)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_aceptaciones_doc_norm ON aceptaciones(documento_norm)")
+        except sqlite3.OperationalError:
+            pass
+
+        # Fase 1: historial de cambios
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS aceptaciones_historial (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                aceptacion_id INTEGER NOT NULL,
+                evento_id     INTEGER NOT NULL,
+                accion        TEXT NOT NULL,
+                realizado_por TEXT NOT NULL,
+                fecha         TEXT NOT NULL,
+                detalle       TEXT
+            )
+            """
+        )
+        try:
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_historial_aceptacion ON aceptaciones_historial(aceptacion_id)")
         except sqlite3.OperationalError:
             pass
 
