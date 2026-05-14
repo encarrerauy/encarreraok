@@ -166,6 +166,8 @@ def ensure_schema_migrations(conn: sqlite3.Connection) -> None:
             ("revisado_por",    "TEXT"),
             ("fecha_revision",  "TEXT"),
             ("motivo_rechazo",  "TEXT"),
+            # Fase 2: email del participante
+            ("email",           "TEXT"),
         ]:
             if col not in columns:
                 cur.execute(f"ALTER TABLE aceptaciones ADD COLUMN {col} {definition}")

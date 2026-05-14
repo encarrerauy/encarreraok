@@ -277,6 +277,14 @@
                     <input type="text" id="documento" name="documento" required placeholder="DNI, Pasaporte o Cédula" />
                 </div>
 
+                <div class="form-group">
+                    <label for="email">Correo electrónico <span style="font-weight:400; color:#888;">(opcional)</span></label>
+                    <input type="email" id="email" name="email" placeholder="ejemplo@correo.com" autocomplete="email" style="width:100%; box-sizing:border-box;" />
+                    <p style="margin:6px 0 0; font-size:0.82rem; color:#856404; background:#fff3cd; border:1px solid #ffc107; border-radius:4px; padding:8px 10px;">
+                        ⚠️ Si tu deslinde es rechazado, te notificaremos por este correo. Sin email no podremos avisarte.
+                    </p>
+                </div>
+
                 <!-- Documento de Identidad -->
                 {% if evento.req_documento %}
                 <div class="form-group">
