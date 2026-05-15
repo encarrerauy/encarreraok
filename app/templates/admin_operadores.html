@@ -32,6 +32,16 @@
         .alert { padding: 10px 14px; border-radius: 6px; margin-bottom: 16px; font-size: 0.9rem; }
         .alert-success { background: #d1e7dd; color: #0f5132; }
         .alert-error { background: #f8d7da; color: #842029; }
+        .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        table { border-collapse: collapse; width: 100%; min-width: 600px; }
+        @media (max-width: 768px) {
+            body { margin: 0; padding: 0; background: #f4f6f9; }
+            .brand { margin: 0 0 16px; padding: 12px 16px; }
+            .toolbar { margin: 0 12px 16px; flex-wrap: wrap; justify-content: flex-start; gap: 10px; }
+            .card { margin: 0 12px 16px; padding: 16px; }
+            .table-wrap { margin-top: 0; }
+            th, td { padding: 8px 10px; font-size: 0.85rem; }
+        }
     </style>
 </head>
 <body>
@@ -90,6 +100,7 @@
     <div class="card">
         <h2>Operadores existentes</h2>
         {% if operadores %}
+        <div class="table-wrap">
         <table>
             <thead>
                 <tr>
@@ -150,6 +161,7 @@
                 {% endfor %}
             </tbody>
         </table>
+        </div>
         {% else %}
         <p style="color:#888; text-align:center; padding: 20px 0;">No hay operadores creados todavía.</p>
         {% endif %}

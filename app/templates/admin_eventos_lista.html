@@ -9,25 +9,37 @@
         table { border-collapse: collapse; width: 100%; margin-top: 20px; }
         th, td { border: 1px solid #ddd; padding: 8px; }
         th { background: #f2f2f2; text-align: left; }
-        .toolbar { 
-            background: #f8f9fa; 
-            padding: 16px; 
-            border-radius: 8px; 
-            margin-bottom: 20px; 
-            display: flex; 
-            gap: 16px; 
+        .toolbar {
+            background: #f8f9fa;
+            padding: 16px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: flex;
+            gap: 12px;
             align-items: center;
             justify-content: space-between;
+            flex-wrap: wrap;
         }
         .btn { padding: 8px 16px; border-radius: 4px; text-decoration: none; border: 1px solid transparent; cursor: pointer; display: inline-block; background: #007bff; color: white; }
         .btn-sm { padding: 4px 8px; font-size: 0.85em; }
         .status-active { color: green; font-weight: bold; }
         .status-inactive { color: #999; }
+        .brand-hdr { background: #fff; padding: 1rem 1.5rem; border-bottom: 1px solid #ddd; display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+        .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        table { border-collapse: collapse; width: 100%; margin-top: 20px; min-width: 700px; }
+        @media (max-width: 768px) {
+            body { margin: 0; padding: 0; }
+            .brand-hdr { padding: 12px 16px; margin: 0 0 12px; }
+            .toolbar { margin: 0 12px 16px; }
+            .toolbar div { display: flex; flex-wrap: wrap; gap: 8px; }
+            .table-wrap { margin: 0 12px 16px; }
+            th, td { padding: 8px 10px; font-size: 0.85rem; }
+        }
     </style>
 </head>
 <body>
     <!-- ADMIN PATCH: brand header -->
-    <div style="background: #fff; padding: 1rem 1.5rem; border-bottom: 1px solid #ddd; display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; margin-left: -24px; margin-right: -24px; margin-top: -24px;">
+    <div class="brand-hdr">
         <div>
             <h1 style="margin: 0; font-size: 1.25rem; color: #1a1a1a;">EncarreraOK <span style="font-weight:normal; font-size:1rem; color:#666;">Admin</span></h1>
             <!-- BRAND PATCH: add logo -->
@@ -48,6 +60,7 @@
         </div>
     </div>
 
+    <div class="table-wrap">
     <table>
         <thead>
             <tr>
@@ -87,5 +100,6 @@
         {% endfor %}
         </tbody>
     </table>
+    </div>
 </body>
 </html>

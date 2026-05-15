@@ -8,18 +8,24 @@
         body { font-family: system-ui, -apple-system, sans-serif; margin: 0; padding: 20px; background: #f4f6f9; }
         .container { max-width: 1000px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
         h1 { margin-top: 0; color: #333; }
-        .search-form { display: flex; gap: 10px; margin-bottom: 20px; }
-        .search-input { flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 16px; }
+        .search-form { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
+        .search-input { flex: 1; min-width: 200px; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 16px; box-sizing: border-box; }
         .btn { padding: 10px 20px; background: #0d6efd; color: white; border: none; border-radius: 4px; cursor: pointer; text-decoration: none; font-size: 16px; }
         .btn:hover { background: #0b5ed7; }
         .btn-secondary { background: #6c757d; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; min-width: 560px; }
         th, td { text-align: left; padding: 12px; border-bottom: 1px solid #ddd; }
         th { background-color: #f8f9fa; font-weight: 600; }
         tr:hover { background-color: #f1f1f1; }
         .no-results { text-align: center; color: #666; margin-top: 20px; }
         .back-link { display: inline-block; margin-bottom: 15px; color: #6c757d; text-decoration: none; }
         .back-link:hover { text-decoration: underline; }
+        @media (max-width: 768px) {
+            body { padding: 12px; }
+            .container { padding: 16px; }
+            th, td { padding: 8px 10px; font-size: 0.85rem; }
+        }
     </style>
 </head>
 <body>
@@ -48,6 +54,7 @@
         {% endif %}
 
         {% if resultados %}
+        <div class="table-wrap">
         <table>
             <thead>
                 <tr>
@@ -74,6 +81,7 @@
                 {% endfor %}
             </tbody>
         </table>
+        </div>
         {% elif query %}
             <div class="no-results">No se encontraron resultados.</div>
         {% endif %}
