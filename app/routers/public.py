@@ -5,6 +5,8 @@ Endpoints:
   GET  /e/{evento_id}            - Mostrar formulario de aceptación
   POST /e/{evento_id}            - Procesar aceptación
   GET  /aceptacion/pdf/{token}   - Descarga pública de PDF
+  GET  /recarga/{token}          - Formulario de re-carga de documentos tras rechazo
+  POST /recarga/{token}          - Procesar re-carga de documentos
 """
 
 import io
@@ -750,6 +752,230 @@ def procesar_aceptacion(
             f"{traceback.format_exc()}"
         )
         raise HTTPException(status_code=500, detail="Error interno del servidor")
+
+
+def _validar_recarga_token(token: str):
+    """
+    Busca y valida un recarga_token. Devuelve dict con aceptacion+evento o
+    lanza HTTPException con el código apropiado.
+    """
+    conn = _get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT a.id, a.evento_id, a.nombre_participante, a.documento,
+                   a.motivo_rechazo, a.estado_revision,
+                   a.recarga_token_usado, a.recarga_token_expires_at,
+                   a.firma_path, a.doc_frente_path, a.doc_dorso_path,
+                   a.audio_path, a.audio_exento, a.salud_doc_path, a.salud_doc_tipo,
+                   e.nombre AS evento_nombre, e.fecha AS evento_fecha,
+                   e.req_firma, e.req_documento, e.req_audio, e.req_salud
+            FROM aceptaciones a
+            JOIN eventos e ON e.id = a.evento_id
+            WHERE a.recarga_token = %s
+            """,
+            (token,),
+        )
+        row = cur.fetchone()
+    finally:
+        conn.close()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Link inválido o no encontrado")
+
+    ac = dict(row)
+
+    if ac.get("recarga_token_usado"):
+        raise HTTPException(status_code=410, detail="Este link ya fue utilizado")
+
+    if ac.get("recarga_token_expires_at"):
+        try:
+            expires_at = datetime.fromisoformat(ac["recarga_token_expires_at"].rstrip("Z"))
+            if datetime.utcnow() > expires_at:
+                raise HTTPException(status_code=410, detail="Este link ha expirado")
+        except HTTPException:
+            raise
+        except Exception:
+            raise HTTPException(status_code=410, detail="Este link ha expirado")
+
+    return ac
+
+
+def _imagen_a_data_uri(path: Optional[str]) -> Optional[str]:
+    """Lee una imagen del disco y la devuelve como data URI base64 para uso inline."""
+    if not path or not os.path.exists(path):
+        return None
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+        ext = os.path.splitext(path)[1].lower().lstrip(".")
+        mime = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
+                "gif": "image/gif", "webp": "image/webp"}.get(ext, "image/jpeg")
+        return f"data:{mime};base64,{base64.b64encode(data).decode()}"
+    except Exception:
+        return None
+
+
+@router.get("/recarga/{token}", response_class=HTMLResponse)
+def mostrar_recarga(token: str, request: Request) -> HTMLResponse:
+    """Muestra el formulario de re-carga de documentos para un deslinde rechazado."""
+    aceptacion = _validar_recarga_token(token)
+
+    docs_actuales = {
+        "firma":     _imagen_a_data_uri(aceptacion.get("firma_path")),
+        "doc_frente": _imagen_a_data_uri(aceptacion.get("doc_frente_path")),
+        "doc_dorso":  _imagen_a_data_uri(aceptacion.get("doc_dorso_path")),
+        "salud_doc":  _imagen_a_data_uri(aceptacion.get("salud_doc_path")),
+        "audio":      bool(aceptacion.get("audio_path")),
+    }
+
+    template = templates_env.get_template("recarga_form.html")
+    html = template.render(
+        request=request,
+        aceptacion=aceptacion,
+        docs_actuales=docs_actuales,
+        exito=False,
+        MAX_IMAGE_DOC_MB=MAX_IMAGE_DOC_MB,
+        MAX_FIRMA_MB=MAX_FIRMA_MB,
+        MAX_AUDIO_MB=MAX_AUDIO_MB,
+    )
+    return HTMLResponse(content=html)
+
+
+@router.post("/recarga/{token}", response_class=HTMLResponse)
+def procesar_recarga(
+    token: str,
+    request: Request,
+    firma_base64_new: Optional[str] = Form(None),
+    doc_frente: Optional[UploadFile] = File(None),
+    doc_dorso: Optional[UploadFile] = File(None),
+    salud_doc: Optional[UploadFile] = File(None),
+    salud_doc_tipo: Optional[str] = Form(None),
+    audio_base64_new: Optional[str] = Form(None),
+) -> HTMLResponse:
+    """Procesa el re-envío de documentos para un deslinde rechazado."""
+    import json as _json
+    aceptacion = _validar_recarga_token(token)
+
+    updates: dict = {}
+
+    # --- Firma ---
+    if firma_base64_new and firma_base64_new.strip():
+        encoded = firma_base64_new.split(",", 1)[1] if "," in firma_base64_new else firma_base64_new
+        try:
+            data = base64.b64decode(encoded)
+            filename = f"{uuid.uuid4()}.png"
+            filepath = os.path.join(FIRMAS_DIR, filename)
+            with open(filepath, "wb") as f:
+                f.write(data)
+            updates["firma_path"] = filepath
+        except Exception as e:
+            app_logger.error(f"Error guardando firma en recarga token={token[:8]}: {e}")
+
+    # --- Frente del documento ---
+    if doc_frente and doc_frente.filename:
+        ext = os.path.splitext(doc_frente.filename)[1] or ".jpg"
+        filename = f"{uuid.uuid4()}_frente{ext}"
+        filepath = os.path.join(DOCUMENTOS_DIR, filename)
+        try:
+            with open(filepath, "wb") as buf:
+                shutil.copyfileobj(doc_frente.file, buf)
+            updates["doc_frente_path"] = filepath
+        except Exception as e:
+            app_logger.error(f"Error guardando doc_frente en recarga: {e}")
+
+    # --- Dorso del documento ---
+    if doc_dorso and doc_dorso.filename:
+        ext = os.path.splitext(doc_dorso.filename)[1] or ".jpg"
+        filename = f"{uuid.uuid4()}_dorso{ext}"
+        filepath = os.path.join(DOCUMENTOS_DIR, filename)
+        try:
+            with open(filepath, "wb") as buf:
+                shutil.copyfileobj(doc_dorso.file, buf)
+            updates["doc_dorso_path"] = filepath
+        except Exception as e:
+            app_logger.error(f"Error guardando doc_dorso en recarga: {e}")
+
+    # --- Documento de salud ---
+    if salud_doc and salud_doc.filename:
+        ext = os.path.splitext(salud_doc.filename)[1] or ".jpg"
+        filename = f"{uuid.uuid4()}{ext}"
+        filepath = os.path.join(SALUD_DIR, filename)
+        try:
+            with open(filepath, "wb") as buf:
+                shutil.copyfileobj(salud_doc.file, buf)
+            updates["salud_doc_path"] = filepath
+            if salud_doc_tipo:
+                updates["salud_doc_tipo"] = salud_doc_tipo
+        except Exception as e:
+            app_logger.error(f"Error guardando salud_doc en recarga: {e}")
+
+    # --- Audio ---
+    if audio_base64_new and audio_base64_new.strip():
+        header = audio_base64_new.split(",")[0] if "," in audio_base64_new else ""
+        encoded = audio_base64_new.split(",", 1)[1] if "," in audio_base64_new else audio_base64_new
+        try:
+            data = base64.b64decode(encoded)
+            ext = ".webm"
+            if "audio/mp3" in header: ext = ".mp3"
+            elif "audio/wav" in header: ext = ".wav"
+            elif "audio/ogg" in header: ext = ".ogg"
+            filename = f"{uuid.uuid4()}{ext}"
+            filepath = os.path.join(AUDIOS_DIR, filename)
+            with open(filepath, "wb") as f:
+                f.write(data)
+            updates["audio_path"] = filepath
+        except Exception as e:
+            app_logger.error(f"Error guardando audio en recarga: {e}")
+
+    if not updates:
+        raise HTTPException(status_code=400, detail="No se recibió ningún documento nuevo. Por favor adjunta al menos un archivo.")
+
+    now_utc = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+    updates["estado_revision"] = None
+    updates["recarga_token_usado"] = 1
+
+    conn = _get_connection()
+    try:
+        cur = conn.cursor()
+        set_parts = [f"{col} = %s" for col in updates]
+        values = list(updates.values()) + [aceptacion["id"]]
+        cur.execute(
+            f"UPDATE aceptaciones SET {', '.join(set_parts)} WHERE id = %s",
+            values,
+        )
+        campos_doc = [k for k in updates if k not in ("estado_revision", "recarga_token_usado")]
+        detalle = _json.dumps({"campos": campos_doc}, ensure_ascii=False)
+        cur.execute(
+            """
+            INSERT INTO aceptaciones_historial
+                (aceptacion_id, evento_id, accion, realizado_por, fecha, detalle)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            """,
+            (aceptacion["id"], aceptacion["evento_id"], "RECARGA_DOCUMENTOS",
+             "participante", now_utc, detalle),
+        )
+        conn.commit()
+    except Exception as e:
+        app_logger.error(f"Error DB en procesar_recarga token={token[:8]}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Error interno del servidor")
+    finally:
+        conn.close()
+
+    app_logger.info(f"Recarga exitosa aceptacion_id={aceptacion['id']} campos={campos_doc}")
+
+    template = templates_env.get_template("recarga_form.html")
+    html = template.render(
+        request=request,
+        aceptacion=aceptacion,
+        docs_actuales={},
+        exito=True,
+        MAX_IMAGE_DOC_MB=MAX_IMAGE_DOC_MB,
+        MAX_FIRMA_MB=MAX_FIRMA_MB,
+        MAX_AUDIO_MB=MAX_AUDIO_MB,
+    )
+    return HTMLResponse(content=html)
 
 
 @router.get("/aceptacion/pdf/{pdf_token}")

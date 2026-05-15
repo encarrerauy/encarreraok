@@ -42,6 +42,9 @@ class Settings:
     mailgun_from: str = os.environ.get("MAILGUN_FROM", "")
     mailgun_region: str = os.environ.get("MAILGUN_REGION", "us")
 
+    # URL pública de la app (para links en emails)
+    app_base_url: str = os.environ.get("APP_BASE_URL", "http://localhost:8000")
+
     def __post_init__(self) -> None:
         if not self.admin_password:
             raise ValueError(

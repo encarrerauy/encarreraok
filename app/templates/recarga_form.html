@@ -1,0 +1,500 @@
+<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0" />
+    <title>Corregir documentos — {{ aceptacion.evento_nombre }}</title>
+    <style>
+        :root {
+            --primary: #0d6efd;
+            --danger: #dc3545;
+            --success: #198754;
+            --warning-bg: #fff3cd;
+            --warning-border: #ffc107;
+            --border-radius: 8px;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 16px;
+            background: #f8f9fa;
+            color: #212529;
+            line-height: 1.5;
+        }
+        .card {
+            background: white;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 24px;
+            border-radius: var(--border-radius);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        }
+        h1 { font-size: 1.4rem; margin: 0 0 4px; }
+        .event-meta { color: #6c757d; font-size: 0.9rem; margin-bottom: 20px; }
+
+        .alert {
+            padding: 14px 16px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+        }
+        .alert-danger  { background: #f8d7da; border-left: 4px solid var(--danger); color: #58151c; }
+        .alert-success { background: #d1e7dd; border-left: 4px solid var(--success); color: #0a3622; }
+
+        .motivo-box {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            padding: 12px 16px;
+            margin: 12px 0 20px;
+            font-size: 0.95rem;
+            color: #495057;
+        }
+
+        .section { margin-bottom: 24px; }
+        .section h3 { font-size: 1rem; margin: 0 0 12px; color: #333; border-bottom: 1px solid #eee; padding-bottom: 6px; }
+
+        .doc-preview {
+            display: flex;
+            gap: 12px;
+            align-items: flex-start;
+            margin-bottom: 12px;
+            flex-wrap: wrap;
+        }
+        .doc-preview img {
+            width: 100px;
+            height: 80px;
+            object-fit: cover;
+            border-radius: 4px;
+            border: 1px solid #dee2e6;
+        }
+        .doc-preview-label {
+            font-size: 0.8rem;
+            color: #6c757d;
+            text-align: center;
+            margin-top: 4px;
+        }
+
+        .file-upload-container {
+            border: 2px dashed #dee2e6;
+            padding: 14px;
+            border-radius: var(--border-radius);
+            text-align: center;
+            margin-bottom: 10px;
+            transition: border-color 0.2s;
+        }
+        .file-upload-container:hover { border-color: var(--primary); }
+        .file-hint { font-size: 0.8rem; color: #6c757d; margin-top: 4px; }
+
+        label { display: block; margin-bottom: 5px; font-weight: 500; font-size: 0.95rem; }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 10px 20px;
+            font-weight: 500;
+            border-radius: 6px;
+            border: none;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: all 0.2s;
+        }
+        .btn-primary { background: var(--primary); color: white; width: 100%; }
+        .btn-primary:hover { background: #0b5ed7; }
+        .btn-secondary { background: #6c757d; color: white; }
+        .btn-danger    { background: var(--danger); color: white; }
+        .btn:disabled  { opacity: 0.6; cursor: not-allowed; }
+        .btn-sm { padding: 6px 12px; font-size: 0.875rem; width: auto; }
+        .btn-group { display: flex; gap: 8px; flex-wrap: wrap; }
+
+        .optional-badge {
+            font-weight: 400;
+            font-size: 0.8rem;
+            color: #888;
+        }
+
+        /* Signature modal */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 9999;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal-content {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            width: 90%;
+            max-width: 560px;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        }
+        #signature-area {
+            border: 2px dashed #ccc;
+            background: #fff;
+            margin-bottom: 16px;
+            height: 200px;
+        }
+
+        /* Audio */
+        .audio-recorder {
+            background: #f8f9fa;
+            padding: 14px;
+            border-radius: var(--border-radius);
+            border: 1px solid #dee2e6;
+        }
+
+        @media (max-width: 576px) {
+            body { padding: 12px; }
+            .card { padding: 16px; }
+            h1 { font-size: 1.2rem; }
+        }
+    </style>
+</head>
+<body>
+<div class="card">
+    <div style="text-align: center; margin-bottom: 20px; padding-bottom: 14px; border-bottom: 1px solid #eee;">
+        <img src="/assets/logo-encarreraok.png" alt="EncarreraOK" style="max-width:160px; width:100%; height:auto; margin-bottom:10px;">
+        <div style="font-size:13px; color:#666; text-transform:uppercase; letter-spacing:1px;">Evidencia clara. Eventos seguros.</div>
+    </div>
+
+    {% if exito %}
+    <!-- SUCCESS STATE -->
+    <div class="alert alert-success">
+        <strong>✅ Documentos recibidos correctamente.</strong>
+    </div>
+    <p>Tu re-envío fue registrado para el evento <strong>{{ aceptacion.evento_nombre }}</strong>.</p>
+    <p>El equipo organizador revisará los nuevos documentos y te notificará por email si es necesario.</p>
+    <p style="font-size:0.85rem; color:#888; margin-top:20px;">Este link ya no puede volver a utilizarse.</p>
+
+    {% else %}
+    <!-- FORM STATE -->
+    <h1>Corregir documentos</h1>
+    <div class="event-meta">{{ aceptacion.evento_nombre }}</div>
+
+    <div class="alert alert-danger">
+        <strong>❌ Tu deslinde fue rechazado.</strong><br>
+        Podés subir los documentos corregidos usando este formulario.
+    </div>
+
+    {% if aceptacion.motivo_rechazo %}
+    <div>
+        <strong>Motivo del rechazo:</strong>
+        <div class="motivo-box">{{ aceptacion.motivo_rechazo }}</div>
+    </div>
+    {% endif %}
+
+    <div style="background:#f8f9fa; border-radius:6px; padding:10px 14px; margin-bottom:20px; font-size:0.9rem;">
+        <strong>Participante:</strong> {{ aceptacion.nombre_participante }}<br>
+        <strong>Documento:</strong> {{ aceptacion.documento }}
+    </div>
+
+    <p style="font-size:0.9rem; color:#555; margin-bottom:20px;">
+        Solo tenés que subir los archivos que necesitás corregir. Los que no subas quedarán como estaban.
+    </p>
+
+    <form method="post" id="recargaForm" enctype="multipart/form-data">
+
+        {% if aceptacion.req_firma %}
+        <!-- FIRMA -->
+        <div class="section">
+            <h3>Firma digital <span class="optional-badge">(opcional — solo si necesitás corregirla)</span></h3>
+
+            {% if docs_actuales.firma %}
+            <div class="doc-preview">
+                <div>
+                    <img src="{{ docs_actuales.firma }}" alt="Firma actual">
+                    <div class="doc-preview-label">Firma actual</div>
+                </div>
+            </div>
+            {% endif %}
+
+            <button type="button" class="btn btn-secondary btn-sm" id="open-signature-modal" style="margin-bottom:8px;">
+                ✍️ Firmar nuevamente
+            </button>
+            <div id="firma-nueva-msg" style="display:none; color:var(--success); font-size:0.9rem; margin-top:4px;">
+                ✔️ Nueva firma lista para enviar
+            </div>
+            <input type="hidden" name="firma_base64_new" id="firma_base64_new">
+
+            <!-- Modal de firma -->
+            <div id="signature-modal" class="modal-overlay">
+                <div class="modal-content">
+                    <h3 style="margin-bottom:14px;">Firmar documento</h3>
+                    <div id="signature-area"></div>
+                    <div class="btn-group" style="margin-top:auto;">
+                        <button type="button" class="btn btn-secondary btn-sm" id="sig-clear">Limpiar</button>
+                        <button type="button" class="btn btn-danger btn-sm" id="sig-cancel">Cancelar</button>
+                        <button type="button" class="btn btn-primary btn-sm" id="sig-save" style="flex:1;">Usar firma</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if aceptacion.req_documento %}
+        <!-- DOCUMENTO DE IDENTIDAD -->
+        <div class="section">
+            <h3>Documento de identidad <span class="optional-badge">(subí solo lo que necesitás corregir)</span></h3>
+
+            <div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:14px;">
+                {% if docs_actuales.doc_frente %}
+                <div>
+                    <img src="{{ docs_actuales.doc_frente }}" alt="Frente actual" style="width:100px; height:80px; object-fit:cover; border-radius:4px; border:1px solid #dee2e6;">
+                    <div class="doc-preview-label">Frente actual</div>
+                </div>
+                {% endif %}
+                {% if docs_actuales.doc_dorso %}
+                <div>
+                    <img src="{{ docs_actuales.doc_dorso }}" alt="Dorso actual" style="width:100px; height:80px; object-fit:cover; border-radius:4px; border:1px solid #dee2e6;">
+                    <div class="doc-preview-label">Dorso actual</div>
+                </div>
+                {% endif %}
+            </div>
+
+            <div class="file-upload-container" style="margin-bottom:10px;">
+                <label for="doc_frente">Nuevo frente del documento <span class="optional-badge">(opcional)</span></label>
+                <input type="file" id="doc_frente" name="doc_frente" accept="image/*" style="width:100%">
+                <div class="file-hint">📸 Foto clara y legible. (Máx. {{ MAX_IMAGE_DOC_MB }} MB)</div>
+            </div>
+
+            <div class="file-upload-container">
+                <label for="doc_dorso">Nuevo dorso del documento <span class="optional-badge">(opcional)</span></label>
+                <input type="file" id="doc_dorso" name="doc_dorso" accept="image/*" style="width:100%">
+                <div class="file-hint">📸 Foto clara y legible. (Máx. {{ MAX_IMAGE_DOC_MB }} MB)</div>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if aceptacion.req_salud %}
+        <!-- DOCUMENTO DE SALUD -->
+        <div class="section">
+            <h3>Documento de salud <span class="optional-badge">(opcional — solo si necesitás corregirlo)</span></h3>
+
+            {% if docs_actuales.salud_doc %}
+            <div class="doc-preview" style="margin-bottom:12px;">
+                <div>
+                    <img src="{{ docs_actuales.salud_doc }}" alt="Doc salud actual">
+                    <div class="doc-preview-label">Salud actual</div>
+                </div>
+            </div>
+            {% endif %}
+
+            <div style="margin-bottom:10px;">
+                <label for="salud_doc_tipo">Tipo de documento</label>
+                <select id="salud_doc_tipo" name="salud_doc_tipo" style="width:100%; padding:8px 10px; border:1px solid #ced4da; border-radius:6px; font-size:1rem; box-sizing:border-box;">
+                    <option value="" {% if not aceptacion.salud_doc_tipo %}selected{% endif %}>Sin cambios</option>
+                    <option value="carne_salud" {% if aceptacion.salud_doc_tipo == 'carne_salud' %}selected{% endif %}>Carné de salud</option>
+                    <option value="certificado_aptitud" {% if aceptacion.salud_doc_tipo == 'certificado_aptitud' %}selected{% endif %}>Certificado de aptitud física</option>
+                    <option value="otro" {% if aceptacion.salud_doc_tipo == 'otro' %}selected{% endif %}>Otro documento equivalente</option>
+                </select>
+            </div>
+
+            <div class="file-upload-container">
+                <label for="salud_doc">Nuevo archivo de salud <span class="optional-badge">(opcional)</span></label>
+                <input type="file" id="salud_doc" name="salud_doc" accept="image/*" style="width:100%">
+                <div class="file-hint">📸 Foto completa y legible. (Máx. {{ MAX_IMAGE_DOC_MB }} MB)</div>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if aceptacion.req_audio %}
+        <!-- AUDIO -->
+        <div class="section">
+            <h3>Confirmación de voz <span class="optional-badge">(opcional — solo si necesitás corregirla)</span></h3>
+
+            {% if docs_actuales.audio %}
+            <p style="font-size:0.85rem; color:#198754; margin-bottom:10px;">🎵 Tenés un audio grabado. Podés reemplazarlo grabando uno nuevo.</p>
+            {% endif %}
+
+            <div class="audio-recorder">
+                <p style="margin-top:0; font-size:0.9rem;">Presioná "Grabar" y leé en voz alta:</p>
+                <div style="font-style:italic; color:#495057; background:white; padding:10px; border-radius:6px; margin-bottom:12px; border-left:3px solid var(--primary); font-size:0.9rem;">
+                    "Yo, <strong>{{ aceptacion.nombre_participante }}</strong>, declaro haber leído y aceptado el deslinde de responsabilidad."
+                </div>
+
+                <div class="btn-group">
+                    <button type="button" class="btn btn-danger btn-sm" id="btn-record">🔴 Grabar</button>
+                    <button type="button" class="btn btn-secondary btn-sm" id="btn-stop" disabled>⏹ Detener</button>
+                    <button type="button" class="btn btn-secondary btn-sm" id="btn-play" disabled>▶ Escuchar</button>
+                    <button type="button" class="btn btn-secondary btn-sm" id="btn-reset" disabled>🔄 Regrabar</button>
+                </div>
+                <div id="audio-status" style="font-size:0.85rem; color:#666; margin-top:8px;">Listo para grabar (dejar vacío para mantener el actual)</div>
+
+                <audio id="audio-preview" style="display:none"></audio>
+                <input type="hidden" name="audio_base64_new" id="audio_base64_new">
+            </div>
+        </div>
+        {% endif %}
+
+        <div style="background:var(--warning-bg); border:1px solid var(--warning-border); border-radius:6px; padding:10px 14px; margin-bottom:20px; font-size:0.85rem; color:#664d03;">
+            ⚠️ Una vez enviados los documentos, este link quedará inutilizable.
+        </div>
+
+        <button type="submit" class="btn btn-primary" id="btn-submit">
+            📎 Enviar documentos corregidos
+        </button>
+    </form>
+    {% endif %}
+</div>
+
+<script>
+{% if not exito %}
+// ── Firma ──────────────────────────────────────────────
+{% if aceptacion.req_firma %}
+(function() {
+    var modal    = document.getElementById('signature-modal');
+    var sigArea  = document.getElementById('signature-area');
+    var hidden   = document.getElementById('firma_base64_new');
+    var newMsg   = document.getElementById('firma-nueva-msg');
+    var canvas, ctx, isDrawing = false, hasStrokes = false, lastX = 0, lastY = 0;
+
+    function initCanvas() {
+        sigArea.innerHTML = '';
+        canvas = document.createElement('canvas');
+        canvas.width  = sigArea.offsetWidth  || 480;
+        canvas.height = sigArea.offsetHeight || 200;
+        canvas.style.display    = 'block';
+        canvas.style.width      = '100%';
+        canvas.style.height     = '100%';
+        canvas.style.touchAction = 'none';
+        sigArea.appendChild(canvas);
+        ctx = canvas.getContext('2d');
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth   = 2.5;
+        ctx.lineCap     = 'round';
+        ctx.lineJoin    = 'round';
+        hasStrokes = false;
+    }
+
+    function getPos(e) {
+        var rect = canvas.getBoundingClientRect();
+        var scX  = canvas.width  / rect.width;
+        var scY  = canvas.height / rect.height;
+        var src  = e.touches ? e.touches[0] : e;
+        return { x: (src.clientX - rect.left) * scX, y: (src.clientY - rect.top) * scY };
+    }
+
+    function onStart(e) { isDrawing=true; var p=getPos(e); lastX=p.x; lastY=p.y; ctx.beginPath(); ctx.moveTo(lastX,lastY); e.preventDefault(); }
+    function onMove(e)  { if(!isDrawing) return; var p=getPos(e); ctx.lineTo(p.x,p.y); ctx.stroke(); lastX=p.x; lastY=p.y; hasStrokes=true; e.preventDefault(); }
+    function onEnd()    { isDrawing=false; }
+
+    function bindCanvas() {
+        canvas.addEventListener('mousedown',  onStart);
+        canvas.addEventListener('mousemove',  onMove);
+        canvas.addEventListener('mouseup',    onEnd);
+        canvas.addEventListener('mouseleave', onEnd);
+        canvas.addEventListener('touchstart', onStart, { passive:false });
+        canvas.addEventListener('touchmove',  onMove,  { passive:false });
+        canvas.addEventListener('touchend',   onEnd);
+    }
+
+    document.getElementById('open-signature-modal').addEventListener('click', function() {
+        modal.style.display = 'flex';
+        setTimeout(function() { initCanvas(); bindCanvas(); }, 60);
+    });
+    document.getElementById('sig-clear').addEventListener('click', function() {
+        if(ctx) { ctx.clearRect(0,0,canvas.width,canvas.height); hasStrokes=false; }
+    });
+    document.getElementById('sig-cancel').addEventListener('click', function() {
+        modal.style.display = 'none';
+    });
+    document.getElementById('sig-save').addEventListener('click', function() {
+        if(!hasStrokes) { alert('Por favor firme antes de guardar.'); return; }
+        hidden.value = canvas.toDataURL('image/png');
+        newMsg.style.display = 'block';
+        modal.style.display  = 'none';
+    });
+})();
+{% endif %}
+
+// ── Audio ──────────────────────────────────────────────
+{% if aceptacion.req_audio %}
+(function() {
+    var mediaRecorder;
+    var chunks = [];
+    var btnRecord  = document.getElementById('btn-record');
+    var btnStop    = document.getElementById('btn-stop');
+    var btnPlay    = document.getElementById('btn-play');
+    var btnReset   = document.getElementById('btn-reset');
+    var status     = document.getElementById('audio-status');
+    var preview    = document.getElementById('audio-preview');
+    var hidden     = document.getElementById('audio_base64_new');
+    var MAX_AUDIO  = {{ MAX_AUDIO_MB }} * 1024 * 1024;
+
+    btnRecord.addEventListener('click', async function() {
+        try {
+            var stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            mediaRecorder = new MediaRecorder(stream);
+            chunks = [];
+            mediaRecorder.ondataavailable = function(e) { chunks.push(e.data); };
+            mediaRecorder.onstop = function() {
+                var blob = new Blob(chunks, { type: 'audio/webm' });
+                if(blob.size > MAX_AUDIO) {
+                    status.textContent = '⚠️ Audio muy largo. Intente de nuevo.';
+                    status.style.color = '#dc3545';
+                    return;
+                }
+                preview.src = URL.createObjectURL(blob);
+                var reader = new FileReader();
+                reader.readAsDataURL(blob);
+                reader.onloadend = function() { hidden.value = reader.result; };
+                btnPlay.disabled   = false;
+                btnReset.disabled  = false;
+                status.textContent = '✅ Audio grabado';
+                status.style.color = '#198754';
+            };
+            mediaRecorder.start();
+            btnRecord.disabled = true;
+            btnStop.disabled   = false;
+            btnPlay.disabled   = true;
+            btnReset.disabled  = true;
+            status.textContent = '🔴 Grabando...';
+            status.style.color = '#dc3545';
+        } catch(err) {
+            alert('No se pudo acceder al micrófono. Verifique los permisos.');
+        }
+    });
+    btnStop.addEventListener('click', function() {
+        if(mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
+        btnStop.disabled = true;
+    });
+    btnPlay.addEventListener('click',  function() { preview.play(); });
+    btnReset.addEventListener('click', function() {
+        hidden.value     = '';
+        btnRecord.disabled = false;
+        btnPlay.disabled   = true;
+        btnReset.disabled  = true;
+        status.textContent = 'Listo para grabar (dejar vacío para mantener el actual)';
+        status.style.color = '#666';
+    });
+})();
+{% endif %}
+
+// ── Submit guard ────────────────────────────────────────
+document.getElementById('recargaForm').addEventListener('submit', function(e) {
+    var hayAlgo = false;
+    var firma  = document.getElementById('firma_base64_new');
+    var audio  = document.getElementById('audio_base64_new');
+    if(firma && firma.value)  hayAlgo = true;
+    if(audio && audio.value)  hayAlgo = true;
+
+    ['doc_frente','doc_dorso','salud_doc'].forEach(function(id) {
+        var inp = document.getElementById(id);
+        if(inp && inp.files && inp.files.length > 0) hayAlgo = true;
+    });
+
+    if(!hayAlgo) {
+        alert('Por favor adjuntá al menos un documento nuevo antes de enviar.');
+        e.preventDefault();
+    }
+});
+{% endif %}
+</script>
+</body>
+</html>

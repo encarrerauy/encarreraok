@@ -160,14 +160,22 @@ def ensure_schema_migrations(conn: sqlite3.Connection) -> None:
             cur.execute(f"ALTER TABLE aceptaciones ADD COLUMN deslinde_version TEXT DEFAULT '{DEFAULT_DESLINDE_VERSION}'")
             app_logger.info("Migración aplicada: columna deslinde_version agregada")
 
-        # Fase 1: columnas de revisión (ACEPTADO / RECHAZADO)
+        # Columnas de anulación (004_anulacion_operadores)
         for col, definition in [
-            ("estado_revision", "TEXT"),
-            ("revisado_por",    "TEXT"),
-            ("fecha_revision",  "TEXT"),
-            ("motivo_rechazo",  "TEXT"),
+            ("motivo_anulacion", "TEXT"),
+            ("fecha_anulacion",  "TEXT"),
+            ("anulado_por",      "TEXT"),
+            # Fase 1: columnas de revisión (ACEPTADO / RECHAZADO)
+            ("estado_revision",  "TEXT"),
+            ("revisado_por",     "TEXT"),
+            ("fecha_revision",   "TEXT"),
+            ("motivo_rechazo",   "TEXT"),
             # Fase 2: email del participante
-            ("email",           "TEXT"),
+            ("email",            "TEXT"),
+            # Fase 4: token de re-carga de documentos
+            ("recarga_token",           "TEXT"),
+            ("recarga_token_expires_at","TEXT"),
+            ("recarga_token_usado",     "INTEGER DEFAULT 0"),
         ]:
             if col not in columns:
                 cur.execute(f"ALTER TABLE aceptaciones ADD COLUMN {col} {definition}")
@@ -432,6 +440,20 @@ def init_db() -> None:
             cur.execute("CREATE INDEX IF NOT EXISTS idx_historial_aceptacion ON aceptaciones_historial(aceptacion_id)")
         except sqlite3.OperationalError:
             pass
+
+        # Tabla de operadores (acceso restringido por evento)
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS operadores (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                username      TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                evento_ids    TEXT NOT NULL DEFAULT '',
+                activo        INTEGER NOT NULL DEFAULT 1,
+                created_at    TEXT NOT NULL
+            )
+            """
+        )
 
         conn.commit()
 

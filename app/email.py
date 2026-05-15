@@ -63,12 +63,33 @@ def send_rechazo_email(
     evento_nombre: str,
     motivo: str,
     revisado_por: str,
+    recarga_token: str = None,
 ) -> bool:
     """Notifica al participante que su deslinde fue rechazado."""
     if not email:
         return False
 
     subject = f"Tu deslinde en {evento_nombre} fue rechazado"
+
+    recarga_link = ""
+    recarga_btn = ""
+    recarga_text = ""
+    if recarga_token:
+        url = f"{settings.app_base_url}/recarga/{recarga_token}"
+        recarga_btn = f"""
+        <div style="text-align: center; margin: 28px 0;">
+            <a href="{url}"
+               style="background: #0d6efd; color: white; text-decoration: none;
+                      padding: 14px 28px; border-radius: 6px; font-size: 1rem;
+                      font-weight: 600; display: inline-block;">
+                📎 Corregir y reenviar documentos
+            </a>
+            <p style="font-size: 0.8rem; color: #888; margin-top: 10px;">
+                Este link es válido por 72 horas y de uso único.
+            </p>
+        </div>
+        """
+        recarga_text = f"\nPodés corregir y reenviar tus documentos en:\n{url}\n(válido 72 horas)\n"
 
     html = f"""
     <div style="font-family: system-ui, Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; color: #1a1a1a;">
@@ -86,8 +107,7 @@ def send_rechazo_email(
             <span style="color: #495057;">{motivo}</span>
         </div>
 
-        <p>Por favor comunicate con los organizadores del evento para regularizar tu situación
-        antes de la fecha del evento.</p>
+        {recarga_btn}
 
         <hr style="border: none; border-top: 1px solid #dee2e6; margin: 24px 0;">
         <p style="font-size: 0.85rem; color: #888;">
@@ -100,8 +120,8 @@ def send_rechazo_email(
     text = (
         f"Hola {nombre},\n\n"
         f"Tu deslinde para el evento '{evento_nombre}' fue RECHAZADO.\n\n"
-        f"Motivo: {motivo}\n\n"
-        f"Por favor comunicate con los organizadores del evento.\n\n"
+        f"Motivo: {motivo}\n"
+        f"{recarga_text}\n"
         f"Revisado por: {revisado_por}\n"
         f"— EncarreraOK"
     )

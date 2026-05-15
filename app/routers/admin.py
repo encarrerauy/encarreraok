@@ -68,6 +68,23 @@ def _get_connection():
     return _db_get_connection()
 
 
+def _generar_recarga_token(conn, aceptacion_id: int, horas: int = 72) -> str:
+    """Genera y guarda un token de re-carga válido por `horas` horas. Retorna el token."""
+    import secrets
+    from datetime import timedelta
+    from app.db.database import sql_placeholders
+    token = secrets.token_urlsafe(32)
+    expires_at = (datetime.utcnow() + timedelta(hours=horas)).replace(microsecond=0).isoformat() + "Z"
+    cur = conn.cursor()
+    cur.execute(
+        f"UPDATE aceptaciones SET recarga_token = {sql_placeholders(1, conn)}, "
+        f"recarga_token_expires_at = {sql_placeholders(1, conn)}, "
+        f"recarga_token_usado = 0 WHERE id = {sql_placeholders(1, conn)}",
+        (token, expires_at, aceptacion_id),
+    )
+    return token
+
+
 def _log_historial(conn, aceptacion_id: int, evento_id: int, accion: str, realizado_por: str, detalle: str = None):
     """Inserta una entrada en aceptaciones_historial."""
     from app.db.database import sql_placeholders
@@ -1151,6 +1168,9 @@ def admin_revisar_aceptacion(
             f"WHERE id = {sql_placeholders(1, conn)}",
             (decision, username, fecha_revision, motivo_rechazo, aceptacion_id),
         )
+        recarga_token = None
+        if decision == "RECHAZADO" and aceptacion.get("email"):
+            recarga_token = _generar_recarga_token(conn, aceptacion_id)
         detalle = json.dumps({"decision": decision, "motivo": motivo_rechazo}, ensure_ascii=False)
         _log_historial(conn, aceptacion_id, aceptacion["evento_id"], f"REVISION_{decision}", username, detalle)
         conn.commit()
@@ -1172,6 +1192,7 @@ def admin_revisar_aceptacion(
             evento_nombre=aceptacion["evento_nombre"],
             motivo=motivo_rechazo,
             revisado_por=username,
+            recarga_token=recarga_token,
         )
 
     evento_id = aceptacion["evento_id"]
