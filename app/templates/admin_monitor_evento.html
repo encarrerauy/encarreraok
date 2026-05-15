@@ -67,6 +67,7 @@
             <h1>Monitor: {{ evento.nombre }}</h1>
         </div>
         <div class="controls">
+            <button onclick="window.location.reload()" class="btn btn-outline" type="button">🔄 Actualizar</button>
             <form action="" method="get">
                 <input type="text" inputmode="numeric" name="q" class="search-box" placeholder="Buscar por nombre o documento..." value="{{ query or '' }}" autocomplete="off">
             </form>
@@ -238,13 +239,6 @@
             searchBox.focus();
             const len = searchBox.value.length;
             searchBox.setSelectionRange(len, len);
-        } else {
-            // Auto-refresh solo si el input está vacío y no hay interacción
-            setTimeout(function() {
-                if (!searchBox.value) {
-                    window.location.reload();
-                }
-            }, 10000);
         }
 
         function abrirAnular(aceptacionId, nombre, documento) {
@@ -280,13 +274,7 @@
             document.getElementById('revisar-modal').classList.remove('active');
         }
 
-        document.getElementById('revisar-modal').addEventListener('click', function(e) {
-            if (e.target === this) cerrarRevisar();
-        });
 
-        document.getElementById('anular-modal').addEventListener('click', function(e) {
-            if (e.target === this) cerrarAnular();
-        });
     </script>
 </body>
 </html>

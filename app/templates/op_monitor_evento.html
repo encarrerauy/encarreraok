@@ -56,6 +56,7 @@
     <div class="header">
         <h1>Monitor: {{ evento.nombre }}</h1>
         <div style="display: flex; gap: 10px; align-items: center;">
+            <button onclick="window.location.reload()" class="btn btn-outline" type="button">🔄 Actualizar</button>
             <a href="/op/{{ evento.id }}/exportar_csv" class="btn btn-success">📋 Descargar CSV</a>
             <form action="" method="get" style="margin:0;">
                 <input type="text" inputmode="numeric" name="q" class="search-box"
@@ -252,23 +253,13 @@
             document.getElementById('modal-revisar').style.display = 'none';
         }
 
-        document.getElementById('modal-anular').addEventListener('click', function(e) {
-            if (e.target === this) cerrarAnular();
-        });
 
-        document.getElementById('modal-revisar').addEventListener('click', function(e) {
-            if (e.target === this) cerrarRevisar();
-        });
 
         const searchBox = document.querySelector('input[name="q"]');
         if (searchBox.value) {
             searchBox.focus();
             const len = searchBox.value.length;
             searchBox.setSelectionRange(len, len);
-        } else {
-            setTimeout(function() {
-                if (!searchBox.value) window.location.reload();
-            }, 10000);
         }
     </script>
 </body>

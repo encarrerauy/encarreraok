@@ -307,7 +307,7 @@ def _get_aceptacion(aceptacion_id: int) -> Optional[dict]:
     try:
         cur = conn.cursor()
         cur.execute(
-            "SELECT id, evento_id, documento, nombre_participante, valido FROM aceptaciones WHERE id = %s",
+            "SELECT id, evento_id, documento, nombre_participante, valido, email FROM aceptaciones WHERE id = %s",
             (aceptacion_id,)
         )
         row = cur.fetchone()
@@ -432,6 +432,17 @@ def op_revisar_aceptacion(
         raise HTTPException(status_code=500, detail=f"Error al revisar: {e}")
     finally:
         conn.close()
+
+    if decision == "RECHAZADO" and aceptacion.get("email"):
+        from app.email import send_rechazo_email
+        evento = _get_evento(evento_id)
+        send_rechazo_email(
+            email=aceptacion["email"],
+            nombre=aceptacion["nombre_participante"],
+            evento_nombre=evento["nombre"] if evento else str(evento_id),
+            motivo=motivo_rechazo,
+            revisado_por=op_username,
+        )
 
     return HTMLResponse(content=f"""
         <script>window.location.href = "/op/{evento_id}/monitor";</script>

@@ -325,7 +325,8 @@ def get_aceptacion_detalle(aceptacion_id: int) -> Optional[Dict[str, Any]]:
                 a.pdf_token_expires_at,
                 a.pdf_token_revoked,
                 a.pdf_last_access_at,
-                a.pdf_access_count
+                a.pdf_access_count,
+                a.email
             FROM aceptaciones a
             JOIN eventos e ON e.id = a.evento_id
             WHERE a.id = %s
@@ -1162,6 +1163,16 @@ def admin_revisar_aceptacion(
         raise HTTPException(status_code=500, detail=f"Error al revisar: {e}")
     finally:
         conn.close()
+
+    if decision == "RECHAZADO" and aceptacion.get("email"):
+        from app.email import send_rechazo_email
+        send_rechazo_email(
+            email=aceptacion["email"],
+            nombre=aceptacion["nombre_participante"],
+            evento_nombre=aceptacion["evento_nombre"],
+            motivo=motivo_rechazo,
+            revisado_por=username,
+        )
 
     evento_id = aceptacion["evento_id"]
     return HTMLResponse(

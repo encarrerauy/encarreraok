@@ -8,6 +8,12 @@ Variables opcionales (con valores por defecto para desarrollo):
   - ADMIN_USER              (default: "admin")
   - ENCARRERAOK_DB_PATH     (default: "/var/lib/encarreraok/encarreraok.sqlite3")
   - ENCARRERAOK_LEGAL_DIR   (default: "legal")
+
+Variables opcionales para email (Mailgun):
+  - MAILGUN_API_KEY
+  - MAILGUN_DOMAIN
+  - MAILGUN_FROM
+  - MAILGUN_REGION          (default: "us")
 """
 
 import os
@@ -29,6 +35,12 @@ class Settings:
 
     # Directorio de archivos legales (textos de deslinde)
     legal_dir: str = os.environ.get("ENCARRERAOK_LEGAL_DIR", "legal")
+
+    # Mailgun (opcional — si no se configura, el envío de emails se omite)
+    mailgun_api_key: str = os.environ.get("MAILGUN_API_KEY", "")
+    mailgun_domain: str = os.environ.get("MAILGUN_DOMAIN", "")
+    mailgun_from: str = os.environ.get("MAILGUN_FROM", "")
+    mailgun_region: str = os.environ.get("MAILGUN_REGION", "us")
 
     def __post_init__(self) -> None:
         if not self.admin_password:
