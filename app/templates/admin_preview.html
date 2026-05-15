@@ -46,6 +46,8 @@
         .btn-download:hover { background: #157347; }
 
         audio { width: 100%; margin-top: 10px; }
+        .btn-original { display: inline-block; margin-top: 7px; font-size: 0.78rem; color: #6ea8fe; text-decoration: none; opacity: 0.75; }
+        .btn-original:hover { opacity: 1; text-decoration: underline; }
     </style>
 </head>
 <body>
@@ -171,6 +173,7 @@
                     <div class="watermark">PREVIEW - NO VÁLIDO LEGAL</div>
                     <img src="/admin/evidencia/{{ aceptacion.id }}/firma?thumbnail=true" alt="Firma">
                 </div>
+                <a href="/admin/evidencia/{{ aceptacion.id }}/firma" target="_blank" class="btn-original">Ver imagen original ↗</a>
             </div>
             {% endif %}
 
@@ -189,6 +192,7 @@
                     <div class="watermark">PREVIEW – NO VÁLIDO LEGAL</div>
                     <img src="/admin/evidencia/{{ aceptacion.id }}/doc_frente?thumbnail=true" alt="Doc Frente">
                 </div>
+                <a href="/admin/evidencia/{{ aceptacion.id }}/doc_frente" target="_blank" class="btn-original">Ver imagen original ↗</a>
                 {% endif %}
             </div>
             {% endif %}
@@ -207,6 +211,7 @@
                     <div class="watermark">PREVIEW – NO VÁLIDO LEGAL</div>
                     <img src="/admin/evidencia/{{ aceptacion.id }}/doc_dorso?thumbnail=true" alt="Doc Dorso">
                 </div>
+                <a href="/admin/evidencia/{{ aceptacion.id }}/doc_dorso" target="_blank" class="btn-original">Ver imagen original ↗</a>
                 {% endif %}
             </div>
             {% endif %}
@@ -226,6 +231,7 @@
                     <div class="watermark">PREVIEW – NO VÁLIDO LEGAL</div>
                     <img src="/admin/evidencia/{{ aceptacion.id }}/salud_doc?thumbnail=true" alt="Salud Doc">
                 </div>
+                <a href="/admin/evidencia/{{ aceptacion.id }}/salud_doc" target="_blank" class="btn-original">Ver imagen original ↗</a>
                 {% endif %}
             </div>
             {% endif %}
