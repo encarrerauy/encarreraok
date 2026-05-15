@@ -197,7 +197,8 @@ def _get_aceptacion_detalle(aceptacion_id: int) -> Optional[dict]:
                 a.firma_path, a.doc_frente_path, a.doc_dorso_path,
                 a.audio_path, a.audio_exento, a.salud_doc_path, a.salud_doc_tipo,
                 a.firma_asistida, a.valido,
-                a.motivo_anulacion, a.fecha_anulacion, a.anulado_por
+                a.motivo_anulacion, a.fecha_anulacion, a.anulado_por,
+                a.estado_revision, a.motivo_rechazo, a.revisado_por, a.fecha_revision
             FROM aceptaciones a
             JOIN eventos e ON e.id = a.evento_id
             WHERE a.id = %s

@@ -343,7 +343,15 @@ def get_aceptacion_detalle(aceptacion_id: int) -> Optional[Dict[str, Any]]:
                 a.pdf_token_revoked,
                 a.pdf_last_access_at,
                 a.pdf_access_count,
-                a.email
+                a.email,
+                a.valido,
+                a.motivo_anulacion,
+                a.fecha_anulacion,
+                a.anulado_por,
+                a.estado_revision,
+                a.motivo_rechazo,
+                a.revisado_por,
+                a.fecha_revision
             FROM aceptaciones a
             JOIN eventos e ON e.id = a.evento_id
             WHERE a.id = %s

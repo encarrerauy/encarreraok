@@ -5,15 +5,24 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Deslinde – {{ aceptacion.nombre_participante }}</title>
     <style>
-        body { font-family: system-ui, -apple-system, sans-serif; background: #222; color: #eee; margin: 0; display: flex; flex-direction: column; height: 100vh; }
-        .brand { background: #fff; padding: 0.75rem 1.5rem; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; border-bottom: 1px solid #ddd; }
-        .brand h1 { margin: 0; font-size: 1.1rem; color: #1a1a1a; }
-        .header { background: #333; padding: 10px 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #444; flex-shrink: 0; }
+        body { font-family: system-ui, -apple-system, sans-serif; background: #222; color: #eee; margin: 0; display: flex; flex-direction: column; min-height: 100vh; }
+        .brand { background: #fff; padding: 0.6rem 1rem; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; border-bottom: 1px solid #ddd; flex-wrap: wrap; gap: 6px; }
+        .brand h1 { margin: 0; font-size: 1rem; color: #1a1a1a; }
+        .header { background: #333; padding: 10px 16px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #444; flex-shrink: 0; flex-wrap: wrap; gap: 8px; }
         .header h2 { margin: 0; font-size: 1rem; }
-        .content { flex: 1; display: grid; grid-template-columns: 300px 1fr; gap: 0; overflow: hidden; }
+        .content { flex: 1; display: grid; grid-template-columns: 300px 1fr; gap: 0; }
         .sidebar { background: #2a2a2a; padding: 20px; border-right: 1px solid #444; overflow-y: auto; }
         .sidebar h3 { margin: 0 0 16px; font-size: 0.95rem; color: #aaa; text-transform: uppercase; letter-spacing: 0.5px; }
         .main-view { padding: 20px; overflow-y: auto; display: flex; flex-direction: column; align-items: center; }
+        @media (max-width: 768px) {
+            .brand { padding: 0.5rem 0.8rem; }
+            .content { grid-template-columns: 1fr; }
+            .sidebar { border-right: none; border-bottom: 1px solid #444; }
+            .header h2 { font-size: 0.9rem; }
+            .main-view { padding: 14px; }
+            .evidence-card { max-width: 100%; }
+            .watermark { font-size: 1.8rem; }
+        }
         .btn { padding: 7px 14px; border-radius: 4px; text-decoration: none; cursor: pointer; display: inline-block; font-size: 0.88rem; border: none; }
         .btn-close { background: #555; color: white; }
         .btn-close:hover { background: #666; }
@@ -171,7 +180,32 @@
             </div>
 
             {% if aceptacion.valido != 0 %}
-            <div style="margin-top: 24px;">
+            <div style="margin-top: 20px; border-top: 1px solid #444; padding-top: 16px;">
+                <div style="margin-bottom: 10px;">
+                    {% if aceptacion.estado_revision == 'ACEPTADO' %}
+                    <span style="background:#0a3622; color:#d1e7dd; padding:4px 10px; border-radius:12px; font-size:0.82rem; font-weight:600;">✅ ACEPTADO</span>
+                    {% elif aceptacion.estado_revision == 'RECHAZADO' %}
+                    <span style="background:#58151c; color:#f8d7da; padding:4px 10px; border-radius:12px; font-size:0.82rem; font-weight:600;">❌ RECHAZADO</span>
+                    {% if aceptacion.motivo_rechazo %}
+                    <div style="font-size:0.8rem; color:#bbb; margin-top:4px;">{{ aceptacion.motivo_rechazo }}</div>
+                    {% endif %}
+                    {% else %}
+                    <span style="background:#333; color:#bbb; padding:4px 10px; border-radius:12px; font-size:0.82rem;">⏳ Sin revisar</span>
+                    {% endif %}
+                    {% if aceptacion.revisado_por %}
+                    <div style="font-size:0.78rem; color:#888; margin-top:4px;">{{ aceptacion.revisado_por }} · {{ (aceptacion.fecha_revision or '')|replace("T"," ")|replace("Z","") }}</div>
+                    {% endif %}
+                </div>
+                <div style="display:flex; gap:8px; margin-bottom:10px;">
+                    <button type="button" onclick="abrirRevisar('ACEPTADO')"
+                        style="flex:1; padding:8px; background:#198754; color:white; border:none; border-radius:6px; cursor:pointer; font-size:0.88rem;">
+                        ✅ Aceptar
+                    </button>
+                    <button type="button" onclick="abrirRevisar('RECHAZADO')"
+                        style="flex:1; padding:8px; background:#dc3545; color:white; border:none; border-radius:6px; cursor:pointer; font-size:0.88rem;">
+                        ❌ Rechazar
+                    </button>
+                </div>
                 <button type="button" class="btn btn-danger" style="width:100%;"
                     onclick="document.getElementById('modal-anular').style.display='flex'">
                     Anular este deslinde
@@ -281,10 +315,48 @@
         </div>
     </div>
 
+    <!-- Modal Revisar -->
+    <div class="modal-backdrop" id="modal-revisar">
+        <div class="modal-box">
+            <h3 id="revisar-titulo"></h3>
+            <p id="revisar-desc" style="font-size:0.88rem; color:#bbb; margin:0 0 12px;"></p>
+            <form method="post" id="form-revisar">
+                <input type="hidden" name="decision" id="revisar-decision">
+                <div id="revisar-motivo-wrapper">
+                    <label style="font-size:0.88rem; font-weight:600; display:block; margin-bottom:4px;">Motivo <span style="color:#f66;">*</span></label>
+                    <textarea name="motivo" id="revisar-motivo" maxlength="300" placeholder="Indicá el motivo del rechazo..."
+                        style="width:100%; box-sizing:border-box; padding:8px; border:1px solid #555; border-radius:4px; background:#333; color:#eee; resize:vertical; min-height:80px; font-size:0.95rem;"></textarea>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn-outline-dark" onclick="cerrarRevisar()">Cancelar</button>
+                    <button type="submit" id="revisar-btn-confirm" class="btn btn-danger">Confirmar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <script>
         document.getElementById('modal-anular').addEventListener('click', function(e) {
             if (e.target === this) this.style.display = 'none';
         });
+        function abrirRevisar(decision) {
+            var esRechazo = decision === 'RECHAZADO';
+            document.getElementById('revisar-titulo').textContent = esRechazo ? '❌ Rechazar deslinde' : '✅ Aceptar deslinde';
+            document.getElementById('revisar-desc').textContent = (esRechazo ? 'Rechazando' : 'Aceptando') + ' deslinde de {{ aceptacion.nombre_participante }}';
+            document.getElementById('revisar-decision').value = decision;
+            document.getElementById('form-revisar').action = '/op/{{ evento_id }}/aceptaciones/{{ aceptacion.id }}/revisar';
+            document.getElementById('revisar-motivo').value = '';
+            document.getElementById('revisar-motivo').required = esRechazo;
+            document.getElementById('revisar-motivo-wrapper').style.display = esRechazo ? 'block' : 'none';
+            var btn = document.getElementById('revisar-btn-confirm');
+            btn.style.background = esRechazo ? '#dc3545' : '#198754';
+            btn.textContent = esRechazo ? 'Confirmar rechazo' : 'Confirmar aceptación';
+            document.getElementById('modal-revisar').style.display = 'flex';
+            if (esRechazo) setTimeout(function() { document.getElementById('revisar-motivo').focus(); }, 80);
+        }
+        function cerrarRevisar() {
+            document.getElementById('modal-revisar').style.display = 'none';
+        }
     </script>
 </body>
 </html>

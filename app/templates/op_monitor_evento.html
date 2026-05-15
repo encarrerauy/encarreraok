@@ -42,6 +42,20 @@
         textarea { width: 100%; box-sizing: border-box; padding: 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 0.9rem; resize: vertical; min-height: 70px; }
         .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
         .counters { margin-bottom: 12px; font-size: 0.95rem; color: #333; display: flex; gap: 24px; align-items: center; }
+
+        /* Mobile */
+        @media (max-width: 768px) {
+            .brand { padding: 0.6rem 1rem; }
+            .brand h1 { font-size: 1rem; }
+            .header { flex-wrap: wrap; gap: 8px; padding: 10px 12px; }
+            .header h1 { font-size: 1rem; width: 100%; }
+            .header > div { flex-wrap: wrap; width: 100%; gap: 8px; }
+            .search-box { width: 100%; box-sizing: border-box; }
+            .container { padding: 12px; }
+            .card { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+            table { min-width: 660px; }
+            th, td { padding: 10px 12px; font-size: 0.85rem; }
+        }
     </style>
 </head>
 <body>
